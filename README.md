@@ -121,10 +121,10 @@ bash /usr-data/data2/kylin/kylin-agent/bin/kylin100.sh tunnel
 
 ## 已知边界
 
-- bash/终端类工具在 Android 上降级（有 /system/bin/sh，无 bash/git）——服务器与 UI 不受影响
+- bash/终端类工具在 Android 上降级（有 /system/bin/sh，无 bash/git）——服务器与 UI 不受影响；`bash` 工具已由 kylin-tools bundle 替换为 mksh 直跑
 - Android 15+ 对 dataSync 前台服务有 6h 上限，超时系统会停服务（重启 app 即恢复；onStart 保活已覆盖进程内拉活）
 - **麒麟 ROM 装机后约 48s 可能一次性强停 FGS**（观察到 `Stop FGS timeout` + CompatChangeReporter 同刻触发；非装机场景 130s+/1.5h+ 稳定存活）。停后下次打开 app 由 onStart 拉活
-- **附件上传不可用**：`dsh-attachment-local` 的内容寻址去重靠 `link(2)` 保留源对象加别名，rename 会搬走源——SELinux hardlink 禁令下需改 copy 语义，暂列为已知边界（会话/消息/文件树不受影响）
+- 附件上传（layout 6 修复）：内容寻址去重的两处 `link(2)`（别名=copy 保源、staged=rename）同样被 SELinux 禁——已加 android 分支
 - `dsh-experimental-inspector`、libreoffice 文档预览（wasm 146MB）已裁，功能缺失但不影响主链
 - 只带 arm64-v8a；x86_64 需换 Termux x86_64 deb 同法打包
-- 版本: 壳 0.1.0 · dsh 0.2.1-rc.2 · node 24.22.1 · runtime layout 3（2026-10-29 真机验证：消息收发+会话 zstd 落盘全绿）
+- 版本: 壳 0.1.0 · dsh 0.2.1-rc.2 · node 24.22.1 · runtime layout 6（2026-10-29 真机验证：消息收发+会话落盘+工具替换全绿；layout 6 附件修复装机验证待设备回线）

@@ -15,7 +15,7 @@ set -euo pipefail
 
 DSH_NPM_VERSION="0.2.1-rc.2"       # @deepseek-ai/dsh (npm dist)
 NODE_PKG="nodejs-lts_24.22.1"      # termux nodejs-lts (aarch64)
-LAYOUT="5"
+LAYOUT="6"
 WORK="${1:-/tmp/dsh-build}"
 UPSTREAM="/usr-data/data2/repos/deepseek-ai/deepseek-harness"
 NDK_CLANG="${NDK_CLANG:-/home/lwz/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang}"
@@ -234,6 +234,82 @@ if "DSH-Android overlay" not in s:
 \t\t} finally {"""
     assert a2 in s, "materializePosix anchor missing"
     s = s.replace(a2, b2, 1)
+    open(p, "w").write(s)
+    print("patched", p)
+else:
+    print("already patched", p)
+PY
+
+echo "== [4d/6] patch attachment-local: same hardlink ban, copy/rename publish"
+# dsh-attachment-local's content-addressed store dedups via link(2): immutable
+# aliases link an existing object under a second name, staged objects link a
+# temp into place. SELinux denies link() on app_data_file (EACCES), so every
+# attachment write dies. On android: aliases copy the bytes (the source object
+# must survive), staged temps rename into place; the EEXIST digest check
+# becomes a pre-check, and the post-publish unlink tolerates the moved file.
+python3 - "$WORK/web" <<'PY'
+import os, sys
+p = os.path.join(sys.argv[1], "node_modules/@deepseek-ai/dsh-attachment-local/lib/index.js")
+s = open(p).read()
+if "DSH-Android overlay" not in s:
+    imp_old = 'import { chmod, link, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";'
+    imp_new = 'import { chmod, copyFile, link, mkdir, open, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";'
+    assert imp_old in s, "attachment import anchor missing"
+    s = s.replace(imp_old, imp_new, 1)
+
+    a1 = "\t\ttry {\n\t\t\tawait link(source, target);\n\t\t} catch (error) {"
+    b1 = """\t\tif (process.platform === "android") {
+\t\t\t/* DSH-Android overlay: SELinux denies hardlinking app_data_file (EACCES).
+\t\t\t * Copy the immutable object's bytes instead — same digest, new inode —
+\t\t\t * preserving the source object the alias semantics require. */
+\t\t\tlet existing = true;
+\t\t\ttry {
+\t\t\t\tawait stat(target);
+\t\t\t} catch (error) {
+\t\t\t\tif (error?.code !== "ENOENT") throw error;
+\t\t\t\texisting = false;
+\t\t\t}
+\t\t\tif (existing) {
+\t\t\t\tif (await digestFile(target) !== sha256) throw new AttachmentError("Stored attachment failed integrity verification.", "ATTACHMENT_CORRUPT");
+\t\t\t} else {
+\t\t\t\tawait copyFile(source, target);
+\t\t\t}
+\t\t} else try {
+\t\t\tawait link(source, target);
+\t\t} catch (error) {"""
+    assert a1 in s, "attachment alias anchor missing"
+    s = s.replace(a1, b1, 1)
+
+    a2 = "\t\ttry {\n\t\t\tawait link(staged.path, target);\n\t\t} catch (error) {"
+    b2 = """\t\tif (process.platform === "android") {
+\t\t\t/* DSH-Android overlay: SELinux denies hardlinking app_data_file (EACCES).
+\t\t\t * The staged file is a disposable temp: rename it into place, keeping
+\t\t\t * the digest check for a pre-existing target. */
+\t\t\tlet existing = true;
+\t\t\ttry {
+\t\t\t\tawait stat(target);
+\t\t\t} catch (error) {
+\t\t\t\tif (error?.code !== "ENOENT") throw error;
+\t\t\t\texisting = false;
+\t\t\t}
+\t\t\tif (existing) {
+\t\t\t\tif (await digestFile(target) !== staged.sha256) throw new AttachmentError("Stored attachment failed integrity verification.", "ATTACHMENT_CORRUPT");
+\t\t\t} else {
+\t\t\t\tawait rename(staged.path, target);
+\t\t\t}
+\t\t} else try {
+\t\t\tawait link(staged.path, target);
+\t\t} catch (error) {"""
+    assert a2 in s, "attachment staged anchor missing"
+    s = s.replace(a2, b2, 1)
+
+    a3 = "\t\tawait unlink(staged.path);"
+    assert s.count(a3) == 1, "attachment unlink anchor not unique"
+    b3 = """\t\t/* DSH-Android: the rename branch above already moved this file away. */
+\t\tawait unlink(staged.path).catch((error) => {
+\t\t\tif (error?.code !== "ENOENT") throw error;
+\t\t});"""
+    s = s.replace(a3, b3, 1)
     open(p, "w").write(s)
     print("patched", p)
 else:
