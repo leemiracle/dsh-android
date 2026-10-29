@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- stylized whale tail / "harness" bracket mark -->
+    <path
+        android:fillColor="#4D6BFE"
+        android:pathData="M30,38 L30,70 L42,70 L42,54 L54,66 L66,54 L66,70 L78,70 L78,38 L54,60 Z" />
+    <path
+        android:fillColor="#4D6BFE"
+        android:pathData="M40,30 h28 v6 h-28 z" />
+</vector>

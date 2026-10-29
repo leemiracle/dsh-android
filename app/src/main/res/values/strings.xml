@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DSH Shell</string>
+    <string name="notification_channel">dsh_server</string>
+    <string name="notification_title">DeepSeek Harness</string>
+    <string name="notification_text_idle">正在准备运行时…</string>
+    <string name="notification_text_running">服务器运行中 · 127.0.0.1:%1$d</string>
+</resources>
