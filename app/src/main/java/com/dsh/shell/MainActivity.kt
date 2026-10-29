@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -137,6 +138,22 @@ class MainActivity : Activity() {
         }
         root.addView(webView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+
+        // The UI talks to a server on 127.0.0.1; never let a system-wide
+        // HTTP proxy (this fleet's devices carry http_proxy=127.0.0.1:7890
+        // pointing at a tunneled host clash) intercept loopback traffic —
+        // a CONNECT to "127.0.0.1" dials the proxy host's own loopback and
+        // the UI wedges. Force this WebView to DIRECT unconditionally.
+        if (androidx.webkit.WebViewFeature.isFeatureSupported(
+                androidx.webkit.WebViewFeature.PROXY_OVERRIDE)) {
+            runCatching {
+                // An empty ProxyConfig (no proxy rules) = direct for everything.
+                androidx.webkit.ProxyController.getInstance().setProxyOverride(
+                    androidx.webkit.ProxyConfig.Builder().build(),
+                    java.util.concurrent.Executors.newSingleThreadExecutor()
+                ) { /* applied */ }
+            }
+        }
 
         setContentView(root)
 

@@ -48,3 +48,10 @@ android {
         jvmTarget = "17"
     }
 }
+
+dependencies {
+    // ProxyController (PROXY_OVERRIDE) lives here, not in the framework SDK;
+    // the shell needs it to keep the WebView off the fleet's system-wide
+    // http_proxy (127.0.0.1:7890 -> tunneled host clash) for its loopback UI.
+    implementation("androidx.webkit:webkit:1.12.1")
+}

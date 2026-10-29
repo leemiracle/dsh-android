@@ -15,7 +15,7 @@ set -euo pipefail
 
 DSH_NPM_VERSION="0.2.1-rc.2"       # @deepseek-ai/dsh (npm dist)
 NODE_PKG="nodejs-lts_24.22.1"      # termux nodejs-lts (aarch64)
-LAYOUT="3"
+LAYOUT="5"
 WORK="${1:-/tmp/dsh-build}"
 UPSTREAM="/usr-data/data2/repos/deepseek-ai/deepseek-harness"
 NDK_CLANG="${NDK_CLANG:-/home/lwz/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang}"
@@ -293,6 +293,14 @@ chmod 755 "$OUT_JNI/libflocknode.so"
 echo "== [6/6] package web tree + CA bundle"
 STAGE2="$STAGE/pack"; mkdir -p "$STAGE2/rt" "$STAGE2/web"
 cp "$R/etc/tls/cert.pem" "$STAGE2/rt/cert.pem"
+# kylin-tools replacement bundle: a profile bundle package living in the
+# runtime module tree (bash=mksh replacing the sandbox-locked dsh-tool-bash,
+# kylin-ddg search provider for the stock web_search tool). DshRuntime's
+# preseed adds it to the web profile's bundle list. The preset restatement
+# patch is generated from `--dump-config` output — regenerate it whenever
+# DSH_NPM_VERSION changes.
+rm -rf "$WORK/web/node_modules/kylin-tools"
+cp -r "$ROOT/tools/kylin-tools" "$WORK/web/node_modules/kylin-tools"
 cp -a "$WORK/web/node_modules" "$STAGE2/web/node_modules"
 mkdir -p "$OUT_ASSETS"
 rm -f "$OUT_ASSETS/dsh-runtime.zip"

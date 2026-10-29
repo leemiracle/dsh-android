@@ -1,0 +1,8 @@
+{
+  "name": "kylin-tools",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "lib/index.mjs",
+  "imports": { "#plugin": "./lib/index.mjs" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}

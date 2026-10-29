@@ -57,11 +57,47 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 升级 dsh：改 `tools/build-runtime.sh` 里 `DSH_NPM_VERSION` 重跑即可（上游仓库不受影响）。
 
+## 内置工具替换：kylin-tools bundle（layout 5 新增）
+
+dsh 基础工具有两个在 Android 上天然不可用，用 kylin-agent 同款语义替换
+（`tools/kylin-tools/`，作为 web profile 的第三个 bundle 自动注册）：
+
+| 原工具 | Android 上的死因 | 替换实现 |
+|---|---|---|
+| `bash`（dsh-tool-bash） | 强制 Landlock/bubblewrap 沙箱后端，Android 没有，拒绝裸跑 | kylin-agent `shell` 语义：`/system/bin/sh`(mksh) 直跑，60s 上限，输出截断；四个 agent preset 的 tool-bash 槽位整体重述指向本包 |
+| `web_search`（web-search-deepseek） | 硬绑 DeepSeek 搜索 API，无 key 必报错 | 插 `kylin-ddg` search provider 进 dsh-web 的 provider 注册表：**原工具名/UX 不变**，后端换 Bing（DDG 对部分代理出口 IP 反爬，作 fallback）；`DSH_WEB_SEARCH_PROVIDER=kylin-ddg` 选择 |
+
+设备直验（真机 node + 完整代理链）：`getprop ro.product.model` → `GreatWall Computer / 16`；
+`search("hefei weather")` → AccuWeather/weather.com 真结果。
+
+### 出网隧道（web_search/web_fetch 需要）
+
+设备无直连外网且本地网关 TLS 拦截（node 不信任其 CA）。出网统一走宿主机 clash：
+
+```sh
+adb reverse tcp:11433 tcp:11433   # vLLM（kylin100.sh tunnel 已含）
+adb reverse tcp:8333  tcp:7890    # node 出网（DshService 已注入 HTTP(S)_PROXY=127.0.0.1:8333 + NODE_USE_ENV_PROXY）
+adb reverse tcp:7890  tcp:7890    # 可选：设备系统代理全局通道（kylin100.sh proxy-on 同款）
+```
+
+**WebView 强制 DIRECT**（androidx.webkit ProxyController）：设备系统代理
+`http_proxy=127.0.0.1:7890` 会把 WebView 连本地 UI 的请求也劫进代理（CONNECT 回环
+拨到宿主机端口 → UI 卡死）。壳内 WebView 一律直连，系统代理只影响其它应用。
+
+### 已知的一次性步骤
+
+- 全新 DSH_HOME 首启：Web UI 出现「选择工作区」屏——手点 `wps` 一次即进入（以及
+  「预览版说明」弹窗点「继续」）。均为 client 端一次性状态。
+- preset 重述 patch 由 `--dump-config` 输出生成（对 dsh 0.2.1-rc.2 的四个 preset）；
+  **升级 DSH_NPM_VERSION 时需重生成** `tools/kylin-tools/cordis.patch.yml`。
+
 ## 使用
 
 首启约 30-60 秒（解 zip）；状态页变标题后 WebView 自动进入。通知栏常驻「停止」
 按钮；活动内返回键 = 后台保活。API key 在 Web UI 设置→模型 里填 DeepSeek 官方
 key（UI 自己持久化），或让用户侧 push `files/dsh/home/.dsh-env`。
+
+
 
 ## 内置模型：kylin 本地 vLLM（与 kylin-agent 同源）
 

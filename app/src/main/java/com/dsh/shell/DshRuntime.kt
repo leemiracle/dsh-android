@@ -53,14 +53,48 @@ object DshRuntime {
         val patch = File(profileDir, "cordis.patch.yml")
         if (patch.exists()) {
             val text = patch.readText()
-            if (text.contains("kylin-vllm") || text.contains(OPT_OUT_MARKER)) return
-            // Top-level YAML list: appending further "- id:" blocks at the
-            // end composes with whatever the UI already saved.
-            patch.appendText(PRESEED_BLOCK)
+            if (!(text.contains("kylin-vllm") || text.contains(OPT_OUT_MARKER))) {
+                // Top-level YAML list: appending further "- id:" blocks at the
+                // end composes with whatever the UI already saved.
+                patch.appendText(PRESEED_BLOCK)
+            }
         } else {
             profileDir.mkdirs()
             patch.writeText(PRESEED_BLOCK)
         }
+        registerKylinToolsBundle(ctx)
+    }
+
+    /**
+     * Add the kylin-tools replacement bundle to the web profile. The bundle
+     * ships inside the runtime zip at web/node_modules/kylin-tools (that copy
+     * satisfies bundle-patch resolution), but the cordis plugin loader
+     * resolves package names from the profile's own node_modules — so the
+     * package is copied there too, and package.json's dsh.profile.bundles
+     * gains the name. Idempotent: copy on content change, one clean append.
+     */
+    private fun registerKylinToolsBundle(ctx: Context) {
+        val src = File(webDir(ctx), "node_modules/kylin-tools")
+        if (!File(src, "package.json").exists()) return
+        val profileDir = File(dshHome(ctx), "profiles/web")
+        val manifest = File(profileDir, "package.json")
+        if (!manifest.exists()) return // dsh initializes it later; next boot picks this up
+
+        val dst = File(profileDir, "node_modules/kylin-tools")
+        val versionStamp = File(dst, ".from-runtime")
+        val layoutStamp = src.walkBottomUp().filter { it.isFile }
+            .map { it.length() }.sum().toString() + "-" + File(src, "lib/index.mjs").length()
+        if (!versionStamp.exists() || versionStamp.readText() != layoutStamp) {
+            dst.deleteRecursively()
+            src.copyRecursively(dst)
+            File(dst, ".from-runtime").writeText(layoutStamp)
+        }
+
+        val text = manifest.readText()
+        if (text.contains("\"kylin-tools\"")) return
+        val marker = "\"@deepseek-ai/dsh-web-app\","
+        if (!text.contains(marker)) return // unexpected manifest shape — leave untouched
+        manifest.writeText(text.replace(marker, "\"@deepseek-ai/dsh-web-app\",\n        \"kylin-tools\""))
     }
 
     private const val OPT_OUT_MARKER = "# dsh-android-preseed-off"

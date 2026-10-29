@@ -169,6 +169,20 @@ class DshService : Service() {
                 // The patched node-addon-system flock loader dlopens the
                 // NDK-built libflocknode.so from here (same no-exec reason).
                 put("DSH_NATIVE_DIR", nativeDir)
+                // Device egress goes through the host's proxy via an adb
+                // reverse tunnel (`adb reverse tcp:8333 tcp:7890`): the local
+                // network TLS-intercepts with a CA node cannot trust, and has
+                // no direct internet. dsh-http-proxy reads these for its web
+                // tools; NODE_USE_ENV_PROXY makes plain fetch() honor them.
+                // vLLM (127.0.0.1:11433) and LAN stay direct via NO_PROXY.
+                put("HTTP_PROXY", "http://127.0.0.1:8333")
+                put("HTTPS_PROXY", "http://127.0.0.1:8333")
+                put("NO_PROXY", "127.0.0.1,localhost,10.0.0.0/8,192.168.0.0/16")
+                put("NODE_USE_ENV_PROXY", "1")
+                // The kylin-tools bundle registers a DuckDuckGo provider on
+                // the web service; select it for the stock web_search tool
+                // (DeepSeek search needs an API key this device has not).
+                put("DSH_WEB_SEARCH_PROVIDER", "kylin-ddg")
                 put("SSL_CERT_FILE", DshRuntime.certPem(this@DshService).absolutePath)
                 put("PATH", "/system/bin:/vendor/bin")
                 // Desktop-ish locale keeps toolchain output sane on the device.
