@@ -42,34 +42,46 @@ object DshRuntime {
      * Preseed the model configuration with the same local vLLM that
      * kylin-agent uses (LocalHarness: qwen3.5-35b over an adb-reverse
      * tunnel at 127.0.0.1:11433). Written into the profile patch layer —
-     * the same file the web UI edits — and only when absent, so anything
-     * the user later changes in the UI wins.
+     * the same file the web UI edits. Idempotent-merge: when the file
+     * already exists (dsh may have initialized it on first boot) the two
+     * entries are appended, preserving everything the UI wrote. Append is
+     * skipped entirely once "kylin-vllm" or the opt-out marker appears, so
+     * a user who removes the provider in the UI is never fought.
      */
     fun preseedModelConfig(ctx: Context) {
         val profileDir = File(dshHome(ctx), "profiles/web")
         val patch = File(profileDir, "cordis.patch.yml")
-        if (patch.exists()) return
-        profileDir.mkdirs()
-        patch.writeText(
-            """
-            # DSH-Android preseed: Kylin local vLLM (same source as kylin-agent LocalHarness).
-            # Reachable on-device via: bash kylin-agent/bin/kylin100.sh tunnel
-            - id: llm-pi-ai
-              config:
-                providers:
-                  kylin-vllm:
-                    apiKeyEnv: KYLIN_VLLM_API_KEY
-                    api: openai-completions
-                    baseURL: http://127.0.0.1:11433/v1
-                    models:
-                      - id: qwen3.5-35b
-            - id: agent-default-model
-              config:
-                provider: kylin-vllm
-                model: qwen3.5-35b
-            """.trimIndent()
-        )
+        if (patch.exists()) {
+            val text = patch.readText()
+            if (text.contains("kylin-vllm") || text.contains(OPT_OUT_MARKER)) return
+            // Top-level YAML list: appending further "- id:" blocks at the
+            // end composes with whatever the UI already saved.
+            patch.appendText(PRESEED_BLOCK)
+        } else {
+            profileDir.mkdirs()
+            patch.writeText(PRESEED_BLOCK)
+        }
     }
+
+    private const val OPT_OUT_MARKER = "# dsh-android-preseed-off"
+    private const val PRESEED_BLOCK =
+        """# dsh-android preseed: Kylin local vLLM (same source as kylin-agent LocalHarness).
+# Reachable on-device via: bash kylin-agent/bin/kylin100.sh tunnel
+# Remove the two entries below (or add "# dsh-android-preseed-off") to disable.
+- id: llm-pi-ai
+  config:
+    providers:
+      kylin-vllm:
+        apiKeyEnv: KYLIN_VLLM_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:11433/v1
+        models:
+          - id: qwen3.5-35b
+- id: agent-default-model
+  config:
+    provider: kylin-vllm
+    model: qwen3.5-35b
+"""
     fun webDir(ctx: Context): File = File(root(ctx), "web")
     fun homeDir(ctx: Context): File = File(root(ctx), "home")
     fun logDir(ctx: Context): File = File(root(ctx), "logs")
@@ -90,9 +102,11 @@ object DshRuntime {
         onProgress(0, "准备安装目录")
         val dsh = root(ctx)
         // Wipe any previous layout, then extract fresh. The tree is disposable
-        // (user data lives under home/ which we preserve).
+        // (user data lives under home/ which we preserve). Tolerate a path
+        // vanishing mid-delete: FileTreeWalk asserts the root is a directory
+        // at each step, so a racing deletion turns into a crash otherwise.
         for (child in listOf(File(dsh, "rt"), File(dsh, "web"))) {
-            child.deleteRecursively()
+            runCatching { child.deleteRecursively() }
         }
         dsh.mkdirs()
         File(dsh, "home").mkdirs()

@@ -15,8 +15,10 @@ set -euo pipefail
 
 DSH_NPM_VERSION="0.2.1-rc.2"       # @deepseek-ai/dsh (npm dist)
 NODE_PKG="nodejs-lts_24.22.1"      # termux nodejs-lts (aarch64)
-LAYOUT="1"
+LAYOUT="3"
 WORK="${1:-/tmp/dsh-build}"
+UPSTREAM="/usr-data/data2/repos/deepseek-ai/deepseek-harness"
+NDK_CLANG="${NDK_CLANG:-/home/lwz/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang}"
 
 TERMUX_APT="https://packages.termux.dev/apt/termux-main"
 LIBS=(libcares.so libcrypto.so.3 libssl.so.3 libc++_shared.so \
@@ -129,6 +131,115 @@ exports.getBindingInfo = getBindingInfo;
 exports.default = { requireBuiltin, isAllowedInternalId, getBindingInfo };
 EOF
 
+echo "== [4b/6] patch node-addon-system flock loader for android"
+# Termux Node reports process.platform==='android'; upstream's gate throws
+# ERR_FLOCK_UNSUPPORTED_PLATFORM before the session lease can ever lock. The
+# branch below loads the NDK-built binding (next step) from nativeLibraryDir —
+# app data paths are no-exec, so the usual per-platform-package `.node`
+# require() route cannot work on device.
+python3 - "$WORK/web" <<'PY'
+import os, sys
+needle_gate = "if (platform !== 'linux' && platform !== 'darwin') {"
+gate_new = "if (platform !== 'linux' && platform !== 'darwin' && platform !== 'android') {"
+needle_req = "const require = createRequire(import.meta.url);"
+branch = needle_req + """
+    if (platform === 'android') {
+        // DSH-Android overlay: upstream src/flock.c compiled with the NDK as
+        // libflocknode.so (jniLibs). Loaded via process.dlopen because the
+        // '.so' suffix never enters the addon require path.
+        const so = process.env.DSH_NATIVE_DIR
+        if (!so) throw Object.assign(new Error('flock: DSH_NATIVE_DIR is not set'), { code: 'ERR_FLOCK_NO_NATIVE_DIR' })
+        const Module = require('node:module').Module
+        const m = new Module('dsh-android-flock', null)
+        process.dlopen(m, so + '/libflocknode.so')
+        binding = m.exports
+        return binding
+    }"""
+hits = 0
+for root, dirs, files in os.walk(os.path.join(sys.argv[1], "node_modules")):
+    if root.endswith(os.sep.join(["node-addon-system", "lib"])) and "flock.js" in files:
+        p = os.path.join(root, "flock.js")
+        s = open(p).read()
+        if "DSH-Android overlay" in s:
+            print("already patched", p)
+            hits += 1
+            continue
+        assert needle_gate in s and needle_req in s, f"anchors missing in {p}"
+        open(p, "w").write(s.replace(needle_gate, gate_new).replace(needle_req, branch))
+        print("patched", p)
+        hits += 1
+assert hits, "node-addon-system/lib/flock.js not found under node_modules"
+PY
+
+echo "== [4c/6] patch session persistence: SELinux bans hardlinks on app data"
+# Two publish sites stage a temp file then link(2) it into place (atomic
+# create-no-clobber). Android SELinux denies link(2) on app_data_file with
+# EACCES, so every session write died right after the flock lease was taken
+# (symptom: session dirs with only session.lock, zero jsonl). On android both
+# sites publish via rename() instead — pre-checks plus the session write lease
+# preserve the no-clobber guarantee the hardlink provided.
+python3 - "$WORK/web" <<'PY'
+import os, sys
+p = os.path.join(sys.argv[1], "node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js")
+s = open(p).read()
+if "DSH-Android overlay" not in s:
+    imp_old = 'import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, truncate } from "node:fs/promises";'
+    imp_new = 'import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, truncate } from "node:fs/promises";'
+    assert imp_old in s, "persistence import anchor missing"
+    s = s.replace(imp_old, imp_new)
+
+    a1 = "\ttry {\n\t\tawait internals.fs.link(staged, currentPath);"
+    b1 = '''\tif (internals.platform === "android") {
+\t\t/* DSH-Android overlay: SELinux forbids hardlinking app_data_file (EACCES),
+\t\t * so emulate link()'s create-exclusive commit: claim the target with an
+\t\t * exclusive-create placeholder, then rename the staged file over it. The
+\t\t * session write lease keeps this directory single-writer, which the link
+\t\t * version relied on as well. */
+\t\tlet placeholder;
+\t\ttry {
+\t\t\tplaceholder = await internals.fs.open(currentPath, "wx", 0o600);
+\t\t} catch (error) {
+\t\t\tif (isEEXIST(error)) return false;
+\t\t\tthrow error;
+\t\t}
+\t\tawait placeholder.close();
+\t\ttry {
+\t\t\tawait rename(staged, currentPath);
+\t\t} catch (error) {
+\t\t\tawait removeTemporary(currentPath, error, internals);
+\t\t\tthrow error;
+\t\t}
+\t\tawait syncDirectory(dirname(currentPath), internals);
+\t\treturn true;
+\t}
+''' + a1
+    assert a1 in s, "publishCurrentExclusive anchor missing"
+    s = s.replace(a1, b1, 1)
+
+    a2 = """\t\tlet linked = false;
+\t\ttry {
+\t\t\tawait link(tmp, finalPath);
+\t\t\tlinked = true;
+\t\t} finally {"""
+    b2 = """\t\tlet linked = false;
+\t\tif (process.platform === "android") {
+\t\t\t/* DSH-Android overlay: SELinux forbids hardlinking app_data_file
+\t\t\t * (EACCES on link(2)). Publish via rename instead — rejectExistingLog
+\t\t\t * above plus the session write lease preserve the no-clobber guarantee. */
+\t\t\tawait rename(tmp, finalPath);
+\t\t\tlinked = true;
+\t\t} else try {
+\t\t\tawait link(tmp, finalPath);
+\t\t\tlinked = true;
+\t\t} finally {"""
+    assert a2 in s, "materializePosix anchor missing"
+    s = s.replace(a2, b2, 1)
+    open(p, "w").write(s)
+    print("patched", p)
+else:
+    print("already patched", p)
+PY
+
 echo "== [5/6] patchelf: rename versioned sonames for AGP packaging"
 # AGP drops jniLibs files whose SONAME is missing or != filename, and rejects
 # names like libz.so.1 outright. Rename each versioned lib to lib*.so, then
@@ -165,8 +276,21 @@ rm -f "$OUT_JNI"/*.so
 cp "$STAGE"/*.so "$OUT_JNI/"
 chmod 755 "$OUT_JNI"/*.so
 
+echo "== [5b/6] flock binding: compile upstream flock.c with the NDK"
+# Same C source the linux prebuilds use, plain Node-API v8 + flock(2), both
+# fine on bionic. SONAME must equal the filename or AGP silently drops it.
+[ -x "$NDK_CLANG" ] || { echo "NDK clang not found: $NDK_CLANG" >&2; exit 1; }
+mkdir -p "$WORK/napi"
+if [ ! -f "$WORK/napi/package/include/node_api.h" ]; then
+  (cd "$WORK/napi" && npm pack node-api-headers --silent && tar xzf node-api-headers-*.tgz)
+fi
+"$NDK_CLANG" --target=aarch64-linux-android26 -shared -fPIC -O2 -DNAPI_VERSION=8 \
+  -I"$WORK/napi/package/include" \
+  "$UPSTREAM/native/system/packages/entry/src/flock.c" \
+  -Wl,-soname,libflocknode.so -o "$OUT_JNI/libflocknode.so"
+chmod 755 "$OUT_JNI/libflocknode.so"
+
 echo "== [6/6] package web tree + CA bundle"
-mkdir -p "$STAGE2"
 STAGE2="$STAGE/pack"; mkdir -p "$STAGE2/rt" "$STAGE2/web"
 cp "$R/etc/tls/cert.pem" "$STAGE2/rt/cert.pem"
 cp -a "$WORK/web/node_modules" "$STAGE2/web/node_modules"

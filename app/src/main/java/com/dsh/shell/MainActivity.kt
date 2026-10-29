@@ -30,6 +30,17 @@ class MainActivity : Activity() {
     private lateinit var webView: WebView
     private var loaded = false
 
+    companion object {
+        /**
+         * Set when the user taps stop. System-initiated service stops (seen
+         * once right after a package replace) must not resurrect the server
+         * against the user's will, while a dead-but-not-stopped server should
+         * come back the next time the activity is visible — onCreate alone
+         * never runs again in that session.
+         */
+        @Volatile var userStopped = false
+    }
+
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val state = intent?.getStringExtra(DshService.EXTRA_STATE) ?: return
@@ -84,6 +95,7 @@ class MainActivity : Activity() {
         val stopBtn = Button(this).apply {
             text = "停止服务器"
             setOnClickListener {
+                userStopped = true
                 startService(Intent(this@MainActivity, DshService::class.java)
                     .setAction(DshService.ACTION_STOP))
             }
@@ -131,6 +143,13 @@ class MainActivity : Activity() {
         registerReceiver(receiver, IntentFilter(DshService.BROADCAST_STATUS),
             RECEIVER_NOT_EXPORTED)
         startService(Intent(this, DshService::class.java).setAction(DshService.ACTION_START))
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (!userStopped) {
+            startService(Intent(this, DshService::class.java).setAction(DshService.ACTION_START))
+        }
     }
 
     private fun loadUi(url: String) {

@@ -51,6 +51,13 @@ class DshService : Service() {
 
     private val main = Handler(Looper.getMainLooper())
     private val stopping = AtomicBoolean(false)
+    /**
+     * Single-flight guard for boot(): MainActivity's onCreate and onStart can
+     * both deliver ACTION_START within milliseconds on a cold launch, and two
+     * concurrent boots race inside ensureInstalled's delete-and-extract (the
+     * FileTreeWalk assertion crashes the whole app).
+     */
+    private val booting = AtomicBoolean(false)
     private var proc: Process? = null
     private var serverUrl: AtomicReference<String?> = AtomicReference(null)
     private var restartAttempts = 0
@@ -68,8 +75,14 @@ class DshService : Service() {
             else -> {
                 stopping.set(false)
                 startForegroundInternal()
-                if (proc == null || proc?.isAlive != true) {
-                    thread(name = "dsh-boot") { boot() }
+                if ((proc == null || proc?.isAlive != true) && booting.compareAndSet(false, true)) {
+                    thread(name = "dsh-boot") {
+                        try {
+                            boot()
+                        } finally {
+                            booting.set(false)
+                        }
+                    }
                 }
             }
         }
@@ -153,6 +166,9 @@ class DshService : Service() {
                 // linker may only load shared objects from the app's native
                 // lib dir (app-writable paths are no-exec for code).
                 put("LD_LIBRARY_PATH", nativeDir)
+                // The patched node-addon-system flock loader dlopens the
+                // NDK-built libflocknode.so from here (same no-exec reason).
+                put("DSH_NATIVE_DIR", nativeDir)
                 put("SSL_CERT_FILE", DshRuntime.certPem(this@DshService).absolutePath)
                 put("PATH", "/system/bin:/vendor/bin")
                 // Desktop-ish locale keeps toolchain output sane on the device.
