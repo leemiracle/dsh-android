@@ -130,6 +130,8 @@ class MainActivity : Activity() {
                 textZoom = 100
                 allowFileAccess = false
                 allowContentAccess = false
+                // Route window.open through our onCreateWindow adoption.
+                setSupportMultipleWindows(true)
             }
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(
@@ -142,6 +144,37 @@ class MainActivity : Activity() {
                     // too — cancelling them (the old kiosk policy) is what
                     // made kdocs "never load". Back returns to the shell UI.
                     return false
+                }
+            }
+            webChromeClient = object : android.webkit.WebChromeClient() {
+                override fun onCreateWindow(
+                    view: WebView?, isDialog: Boolean, isUserGesture: Boolean,
+                    resultMsg: android.os.Message?
+                ): Boolean {
+                    // window.open / target=_blank — including the browser
+                    // panel's "open in system browser" button — becomes a
+                    // real in-shell browser window (no iframe limits, real
+                    // cookies): the natural surface for office apps. The
+                    // carrier WebView receives the URL as a loadUrl-style
+                    // delivery, which does NOT fire shouldOverrideUrlLoading
+                    // — onPageStarted is the reliable interception point.
+                    android.util.Log.d("DshMain", "onCreateWindow dialog=$isDialog gesture=$isUserGesture")
+                    val tmp = android.webkit.WebView(view!!.context)
+                    var delivered = false
+                    tmp.webViewClient = object : WebViewClient() {
+                        override fun onPageStarted(v: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                            if (!delivered && url != null) {
+                                delivered = true
+                                android.util.Log.d("DshMain", "window.open captured: $url")
+                                DshBrowserActivity.start(this@MainActivity, url)
+                                v?.stopLoading()
+                                tmp.post { runCatching { tmp.destroy() } }
+                            }
+                        }
+                    }
+                    (resultMsg?.obj as? android.webkit.WebView.WebViewTransport)?.setWebView(tmp)
+                    resultMsg?.sendToTarget()
+                    return true
                 }
             }
         }
