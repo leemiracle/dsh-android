@@ -135,10 +135,13 @@ class MainActivity : Activity() {
                 override fun shouldOverrideUrlLoading(
                     view: WebView?, request: WebResourceRequest?
                 ): Boolean {
-                    // Keep everything inside the local origin; external links
-                    // would have no browser to fall back to in kiosk use.
-                    val host = request?.url?.host
-                    return host != null && host != "127.0.0.1" && host != "localhost"
+                    // Let every navigation proceed in-shell. External top-level
+                    // navigations happen by design now: the sidebar browser
+                    // panel's pages frame-bust out of their iframe, and
+                    // redirect chains (kdocs.cn -> www.kdocs.cn) arrive here
+                    // too — cancelling them (the old kiosk policy) is what
+                    // made kdocs "never load". Back returns to the shell UI.
+                    return false
                 }
             }
         }
