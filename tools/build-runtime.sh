@@ -15,7 +15,7 @@ set -euo pipefail
 
 DSH_NPM_VERSION="0.2.1-rc.2"       # @deepseek-ai/dsh (npm dist)
 NODE_PKG="nodejs-lts_24.22.1"      # termux nodejs-lts (aarch64)
-LAYOUT="11"
+LAYOUT="12"
 WORK="${1:-/tmp/dsh-build}"
 UPSTREAM="/usr-data/data2/repos/deepseek-ai/deepseek-harness"
 NDK_CLANG="${NDK_CLANG:-/home/lwz/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang}"

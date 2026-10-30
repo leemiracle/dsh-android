@@ -95,6 +95,10 @@ class DshService : Service() {
             screenOffReceiver,
             IntentFilter(Intent.ACTION_SCREEN_OFF)
         )
+        // Loopback bridge for the kylin-tools `linux` tool: Node can't bind
+        // Android services, so this exposes the kylin-agent sandbox APK
+        // (com.kylin.agent.sandbox, targetSdk 28) over 127.0.0.1:33990.
+        LinuxSandbox.start(this)
     }
 
     private val screenOffReceiver = object : BroadcastReceiver() {
@@ -184,7 +188,13 @@ class DshService : Service() {
                 // (DeepSeek search needs an API key this device has not).
                 put("DSH_WEB_SEARCH_PROVIDER", "kylin-ddg")
                 put("SSL_CERT_FILE", DshRuntime.certPem(this@DshService).absolutePath)
-                put("PATH", "/system/bin:/vendor/bin")
+                // Termux-rootfs binaries link against their own lib dir; the
+                // sidebar terminal's bash and the `linux` tool's children
+                // both need it (CANNOT LINK EXECUTABLE otherwise). Rootfs
+                // bins go first on PATH so the terminal gets real userland.
+                val linux = LinuxSandbox.root(this@DshService)
+                put("PATH", "${File(linux, "bin")}:/system/bin:/vendor/bin")
+                put("LD_LIBRARY_PATH", nativeDir + ":" + File(linux, "lib"))
                 // Desktop-ish locale keeps toolchain output sane on the device.
                 put("LANG", "C.UTF-8")
                 // Termux node compiles userInfo().shell as its own bash prefix,

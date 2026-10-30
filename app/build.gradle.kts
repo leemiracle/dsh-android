@@ -10,9 +10,13 @@ android {
     defaultConfig {
         applicationId = "com.dsh.shell"
         minSdk = 26
-        // Kept at 35: matches installed build-tools/AGP pair; runs fine on the
-        // Android 16 (API 36) Kylin target.
-        targetSdk = 35
+        // 28 is deliberate, same survival trick as Termux/kylin-agent's
+        // sandbox APK: targetSdk 29+ forbids exec() from app-data (W^X /
+        // SELinux neverallow), which would kill the bundled Termux-rootfs
+        // binaries (bash/python for the terminal panel and the `linux`
+        // tool). Everything this shell uses (FGS, WebView, androidx.webkit
+        // ProxyController, CDP) predates 29 and behaves identically.
+        targetSdk = 28
         versionCode = 1
         versionName = "0.1.0"
     }

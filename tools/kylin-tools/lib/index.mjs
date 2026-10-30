@@ -119,6 +119,50 @@ const bashTool = defineTool({
 	},
 });
 
+// -------------------------------------------------- Linux sandbox tool (kylin-agent rootfs)
+
+const SANDBOX_BASE = "http://127.0.0.1:33990";
+
+async function sandboxCall(pathname, body, signal) {
+	const res = await fetch(SANDBOX_BASE + pathname, {
+		method: body ? "POST" : "GET",
+		headers: body ? { "content-type": "application/json" } : undefined,
+		body: body ? JSON.stringify(body) : undefined,
+		signal,
+	});
+	const data = await res.json().catch(() => ({ error: "bad bridge response" }));
+	if (data.error) return { exitCode: 1, output: `sandbox bridge: ${data.error}` };
+	return data;
+}
+
+const linuxTool = defineTool({
+	name: "linux",
+	description:
+		"Run a command in the bundled Linux userland (Termux rootfs in-app: bash, coreutils, grep/sed/awk, apt, …) " +
+		"and return rc with combined stdout/stderr (60s cap, output truncated). " +
+		"Use this when the Android mksh `bash` tool lacks a program or full GNU behavior. " +
+		"If it reports the rootfs missing, say so (install needs a one-time bootstrap).",
+	parameters: {
+		cmd: { type: "string", description: "The shell command to execute (single line, pipes allowed)." },
+	},
+	output: {
+		schema: {
+			type: "object",
+			additionalProperties: false,
+			properties: {
+				result: { type: "string", required: true, description: "rc header + combined output, as returned by the sandbox." },
+			},
+		},
+		render: (_args, value) => [{ type: "text", text: value.result }],
+	},
+	async execute(args, exec) {
+		const cmd = String(args.cmd ?? "").trim();
+		if (!cmd) return { result: "(empty command)" };
+		const data = await sandboxCall("/linux/exec", { cmd }, exec.signal);
+		return { result: String(data.result ?? JSON.stringify(data)) };
+	},
+});
+
 // -------------------------------------------------- DuckDuckGo search provider
 
 function decodeEntities(text) {
@@ -245,6 +289,11 @@ function apply(ctx) {
 	if (tools !== undefined) {
 		try {
 			tools.register(bashTool);
+		} catch {
+			/* already registered by another composition */
+		}
+		try {
+			tools.register(linuxTool);
 		} catch {
 			/* already registered by another composition */
 		}

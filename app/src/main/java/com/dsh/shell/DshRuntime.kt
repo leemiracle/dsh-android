@@ -62,7 +62,42 @@ object DshRuntime {
             profileDir.mkdirs()
             patch.writeText(PRESEED_BLOCK)
         }
+        selectTerminalShell(ctx, patch)
         registerKylinToolsBundle(ctx)
+    }
+
+    /**
+     * Point the sidebar terminal's PTY at the bundled Linux rootfs bash when
+     * it is installed (full userland: history/completion/coreutils), else at
+     * Android's mksh. The user layer can only override config — exactly what
+     * we need — and it composes last, after the kylin-tools bundle's own
+     * optional-terminal-bash row. Rewritten on every boot.
+     */
+    private fun selectTerminalShell(ctx: Context, patch: File) {
+        val bash = LinuxSandbox.bash(ctx)
+        val block = if (bash.exists()) {
+            "# dsh-android: terminal shell follows the bundled Linux rootfs.\n" +
+                "- id: optional-terminal-bash\n" +
+                "  config:\n" +
+                "    shellPath: ${bash.absolutePath}\n" +
+                "    shellArgs:\n" +
+                "      - -i\n"
+        } else {
+            "# dsh-android: Linux rootfs not installed; fall back to Android mksh.\n" +
+                "- id: optional-terminal-bash\n" +
+                "  config:\n" +
+                "    shellPath: /system/bin/sh\n" +
+                "    shellArgs:\n" +
+                "      - -i\n"
+        }
+        val marker = "# dsh-android: terminal shell"
+        val prev = if (patch.exists()) patch.readText() else ""
+        // Drop any previous section of ours, then append the fresh one as a
+        // top-level list item (the file is a YAML array of patch entries).
+        val base = if (prev.contains(marker)) {
+            prev.substringBefore(marker).trimEnd()
+        } else prev.trimEnd()
+        patch.writeText((if (base.isBlank()) "" else base + "\n\n") + block + "\n")
     }
 
     /**
