@@ -30,6 +30,12 @@ class MainActivity : Activity() {
     private lateinit var subStatus: TextView
     private lateinit var webView: WebView
     private var loaded = false
+    /**
+     * Last server URL, so back can recover the shell UI after a browser
+     * panel page frame-busts its way to the top frame (top-level navigation
+     * replaces the whole history, leaving nothing to go back to).
+     */
+    private var serverUrl: String? = null
 
     companion object {
         /**
@@ -139,17 +145,19 @@ class MainActivity : Activity() {
         root.addView(webView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
-        // The UI talks to a server on 127.0.0.1; never let a system-wide
-        // HTTP proxy (this fleet's devices carry http_proxy=127.0.0.1:7890
-        // pointing at a tunneled host clash) intercept loopback traffic —
-        // a CONNECT to "127.0.0.1" dials the proxy host's own loopback and
-        // the UI wedges. Force this WebView to DIRECT unconditionally.
+        // Split proxy policy: loopback (the local dsh UI) must stay DIRECT or
+        // a system-wide proxy wedges the whole shell; everything else — the
+        // browser panel's external pages — goes through the host clash tunnel
+        // (adb reverse tcp:7890), the device's only TLS-trustworthy egress.
         if (androidx.webkit.WebViewFeature.isFeatureSupported(
                 androidx.webkit.WebViewFeature.PROXY_OVERRIDE)) {
             runCatching {
-                // An empty ProxyConfig (no proxy rules) = direct for everything.
                 androidx.webkit.ProxyController.getInstance().setProxyOverride(
-                    androidx.webkit.ProxyConfig.Builder().build(),
+                    androidx.webkit.ProxyConfig.Builder()
+                        .addProxyRule("http://127.0.0.1:7890")
+                        .addBypassRule("127.0.0.1")
+                        .addBypassRule("localhost")
+                        .build(),
                     java.util.concurrent.Executors.newSingleThreadExecutor()
                 ) { /* applied */ }
             }
@@ -171,6 +179,7 @@ class MainActivity : Activity() {
 
     private fun loadUi(url: String) {
         loaded = true
+        serverUrl = url
         runOnUiThread {
             webView.visibility = View.VISIBLE
             webView.loadUrl(url)
@@ -185,11 +194,21 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (webView.visibility == View.VISIBLE && webView.canGoBack()) {
-            webView.goBack()
-        } else {
-            // Keep the server alive; just leave the foreground.
-            moveTaskToBack(true)
+        if (webView.visibility == View.VISIBLE) {
+            if (webView.canGoBack()) {
+                webView.goBack()
+                return
+            }
+            // A frame-busted external page sits at the top with an empty
+            // history; reload the shell UI instead of leaving the app.
+            val offShell = webView.url?.let { u ->
+                !u.startsWith("http://127.0.0.1") && !u.startsWith("http://localhost")
+            } == true
+            if (offShell) {
+                serverUrl?.let { webView.loadUrl(it); return }
+            }
         }
+        // Keep the server alive; just leave the foreground.
+        moveTaskToBack(true)
     }
 }

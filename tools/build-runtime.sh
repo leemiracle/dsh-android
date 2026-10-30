@@ -15,7 +15,7 @@ set -euo pipefail
 
 DSH_NPM_VERSION="0.2.1-rc.2"       # @deepseek-ai/dsh (npm dist)
 NODE_PKG="nodejs-lts_24.22.1"      # termux nodejs-lts (aarch64)
-LAYOUT="6"
+LAYOUT="11"
 WORK="${1:-/tmp/dsh-build}"
 UPSTREAM="/usr-data/data2/repos/deepseek-ai/deepseek-harness"
 NDK_CLANG="${NDK_CLANG:-/home/lwz/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang}"
@@ -316,6 +316,55 @@ else:
     print("already patched", p)
 PY
 
+echo "== [4e/6] patch node-pty loader: android binding from nativeLibraryDir"
+# The linux-arm64 prebuild is glibc-linked (libutil.so.1 bionic has not) and a
+# .node inside app data is no-exec anyway. The NDK build (next step) ships as
+# libptyexec.so in jniLibs; load it via process.dlopen, '.so' never enters
+# the addon require path (same pattern as the flock binding).
+python3 - "$WORK/web" <<'PY'
+import os, sys
+p = os.path.join(sys.argv[1], "node_modules/node-pty/lib/utils.js")
+s = open(p).read()
+if "DSH-Android overlay" not in s:
+    a = "function loadNativeModule(name) {\n    // Check build, debug, and then prebuilds."
+    b = """function loadNativeModule(name) {
+    if (process.platform === 'android') {
+        /* DSH-Android overlay: the glibc prebuild needs libutil.so.1 bionic
+         * has not, and .node files under app data are no-exec. The NDK build
+         * ships as lib<name>exec.so in nativeLibraryDir (DSH_NATIVE_DIR). */
+        var so = process.env.DSH_NATIVE_DIR;
+        if (!so) throw new Error("DSH-Android: DSH_NATIVE_DIR is not set");
+        var Module = require('module').Module;
+        var mod = new Module('dsh-android-' + name, null);
+        process.dlopen(mod, so + '/lib' + name + 'exec.so');
+        return { dir: 'nativeLibraryDir', module: mod.exports };
+    }
+    // Check build, debug, and then prebuilds."""
+    assert a in s, "node-pty loader anchor missing"
+    open(p, "w").write(s.replace(a, b, 1))
+    print("patched", p)
+else:
+    print("already patched", p)
+PY
+
+echo "== [4f/6] patch subprocess-local: android joins the linux inspector"
+# The terminal panel spawns through subprocess-local, whose process inspector
+# factory only knows linux/darwin/win32 and throws on android. The Linux
+# inspector (procfs reads) is exactly right for Android's same-uid /proc.
+python3 - "$WORK/web" <<'PYINSPECTOR'
+import os, sys
+p = os.path.join(sys.argv[1], "node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js")
+s = open(p).read()
+old = '\tif (platform === "linux") return new LinuxProcessInspector(arch, internals);'
+new = '\tif (platform === "linux" || platform === "android") return new LinuxProcessInspector(arch, internals);'
+if new not in s:
+    assert old in s, "inspector anchor missing"
+    open(p, "w").write(s.replace(old, new, 1))
+    print("patched", p)
+else:
+    print("already patched", p)
+PYINSPECTOR
+
 echo "== [5/6] patchelf: rename versioned sonames for AGP packaging"
 # AGP drops jniLibs files whose SONAME is missing or != filename, and rejects
 # names like libz.so.1 outright. Rename each versioned lib to lib*.so, then
@@ -365,6 +414,20 @@ fi
   "$UPSTREAM/native/system/packages/entry/src/flock.c" \
   -Wl,-soname,libflocknode.so -o "$OUT_JNI/libflocknode.so"
 chmod 755 "$OUT_JNI/libflocknode.so"
+
+echo "== [5c/6] pty binding: compile upstream node-pty pty.cc with the NDK"
+# Plain N-API C++ over forkpty/openpty (both in bionic libc since API 23);
+# node-addon-api headers ship in the tree, N-API headers via node-api-headers.
+NDK_CXX="${NDK_CXX:-$(dirname "$NDK_CLANG")/clang++}"
+[ -x "$NDK_CXX" ] || { echo "NDK clang++ not found: $NDK_CXX" >&2; exit 1; }
+"$NDK_CXX" --target=aarch64-linux-android26 -shared -fPIC -O2 -std=c++17 \
+  -DNAPI_VERSION=8 -DNODE_ADDON_API_DISABLE_DEPRECATED \
+  -I"$WORK/web/node_modules/node-addon-api" \
+  -I"$WORK/napi/package/include" \
+  "$WORK/web/node_modules/node-pty/src/unix/pty.cc" \
+  -l:libc++_static.a -l:libc++abi.a \
+  -Wl,-soname,libptyexec.so -o "$OUT_JNI/libptyexec.so"
+chmod 755 "$OUT_JNI/libptyexec.so"
 
 echo "== [6/6] package web tree + CA bundle"
 STAGE2="$STAGE/pack"; mkdir -p "$STAGE2/rt" "$STAGE2/web"

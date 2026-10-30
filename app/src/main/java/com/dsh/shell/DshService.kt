@@ -187,6 +187,10 @@ class DshService : Service() {
                 put("PATH", "/system/bin:/vendor/bin")
                 // Desktop-ish locale keeps toolchain output sane on the device.
                 put("LANG", "C.UTF-8")
+                // Termux node compiles userInfo().shell as its own bash prefix,
+                // which does not exist here; subprocess-local and node-pty
+                // resolve their default shell from this env.
+                put("SHELL", "/system/bin/sh")
                 remove("ANDROID_ROOT")
                 remove("ANDROID_DATA")
             }

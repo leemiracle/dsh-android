@@ -80,9 +80,31 @@ adb reverse tcp:8333  tcp:7890    # node 出网（DshService 已注入 HTTP(S)_P
 adb reverse tcp:7890  tcp:7890    # 可选：设备系统代理全局通道（kylin100.sh proxy-on 同款）
 ```
 
-**WebView 强制 DIRECT**（androidx.webkit ProxyController）：设备系统代理
+**WebView 分流代理**（androidx.webkit ProxyController）：设备系统代理
 `http_proxy=127.0.0.1:7890` 会把 WebView 连本地 UI 的请求也劫进代理（CONNECT 回环
-拨到宿主机端口 → UI 卡死）。壳内 WebView 一律直连，系统代理只影响其它应用。
+拨到宿主机端口 → UI 卡死）。壳内 WebView 策略：`127.0.0.1/localhost` 直连（本地
+dsh UI），其余（浏览器面板的外网页面）走 `http://127.0.0.1:7890` 反向隧道出网。
+
+## 右侧面板：终端 + 浏览器（layout 8-11 新增）
+
+dsh 自带的多标签右侧栏（ui-dockkit），两项关键适配：
+
+- **终端面板**：`dsh-experimental-terminal-bundle` + node-pty。pty 绑定 Termux 只发
+  linux prebuild，Android 上 dlopen 缺 libc++ `__ndk1` 符号 → build-runtime.sh 用
+  NDK r29 静态链 libc++ 重编 `libptyexec.so` 进 jniLibs，loader patch 走
+  `process.dlopen`；subprocess-local 的进程检查器把 android 当 linux（同 patch）；
+  `SHELL=/system/bin/sh`（mksh）由 DshService 注入；bundle patch 将 PTY 后端指向
+  `/system/bin/sh -i`。真机实证：mksh 提示符下 `ls`/`adb --help` 正常执行回显。
+- **浏览器面板**：`ui-sidebar-browser` 插件上游 gate 到 desktop profile
+  （`disabled: profileContext.name !== 'desktop'`），kylin-tools bundle patch 覆盖
+  `disabled: false` 启用。web 构建以普通 iframe 渲染页面——Android WebView 完全
+  可用，外网流量经上面的分流代理出网。真机实证：面板内依次打开
+  example.com / kdocs.cn / baidu.com 全部渲染（tab 标题/地址栏/前进后退跟随；
+  导航状态持久化，重开 tab 有「恢复页面」）。
+
+已知怪癖：浏览器 tab 从空白首态直接输首个 URL 偶尔停在「正在打开…」（上游控制器
+时序），关掉 tab 重开（或先建 tab 再输入）即正常；frame-busting 站点（百度搜索
+结果页等）可能把顶层导航劫走——返回键会自动 reload 壳 UI 兜底。
 
 ### 已知的一次性步骤
 
@@ -127,4 +149,4 @@ bash /usr-data/data2/kylin/kylin-agent/bin/kylin100.sh tunnel
 - 附件上传（layout 6 修复）：内容寻址去重的两处 `link(2)`（别名=copy 保源、staged=rename）同样被 SELinux 禁——已加 android 分支
 - `dsh-experimental-inspector`、libreoffice 文档预览（wasm 146MB）已裁，功能缺失但不影响主链
 - 只带 arm64-v8a；x86_64 需换 Termux x86_64 deb 同法打包
-- 版本: 壳 0.1.0 · dsh 0.2.1-rc.2 · node 24.22.1 · runtime layout 6（2026-10-29 真机验证：消息收发+会话落盘+工具替换全绿；layout 6 附件修复装机验证待设备回线）
+- 版本: 壳 0.1.0 · dsh 0.2.1-rc.2 · node 24.22.1 · runtime layout 11（2026-10-30 真机验证：消息收发+会话落盘+工具替换+终端面板+浏览器面板全绿；附件上传待用户实测）

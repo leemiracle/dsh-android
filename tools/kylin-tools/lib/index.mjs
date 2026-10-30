@@ -18,17 +18,27 @@ import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-// The package sits inside the runtime tree's node_modules (next to
-// @deepseek-ai/*); walk up to the node_modules root just in case.
+// This package is loaded from the profile's node_modules, whose ancestors
+// never pass through the runtime tree's web/node_modules — probe both the
+// sibling layout (next to @deepseek-ai/*) and the "web/"-rooted one while
+// walking up.
 let defineTool;
 {
+	const suffix = "node_modules/@deepseek-ai/dsh-tools/lib/index.js";
 	let dir = dirname(fileURLToPath(import.meta.url));
-	for (let i = 0; i < 10 && defineTool === undefined; i += 1) {
-		try {
-			defineTool = (await import(pathToFileURL(resolve(dir, "node_modules/@deepseek-ai/dsh-tools/lib/index.js")).href)).defineTool;
-		} catch {
-			dir = dirname(dir);
+	for (let i = 0; i < 12 && defineTool === undefined; i += 1) {
+		for (const candidate of [resolve(dir, suffix), resolve(dir, "web", suffix)]) {
+			try {
+				const imported = (await import(pathToFileURL(candidate).href)).defineTool;
+				if (imported !== undefined) {
+					defineTool = imported;
+					break;
+				}
+			} catch {
+				/* try the next candidate */
+			}
 		}
+		dir = dirname(dir);
 	}
 	if (defineTool === undefined) throw new Error("kylin-tools: cannot locate the dsh runtime module tree");
 }

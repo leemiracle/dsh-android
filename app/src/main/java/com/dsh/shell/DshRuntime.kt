@@ -91,10 +91,36 @@ object DshRuntime {
         }
 
         val text = manifest.readText()
-        if (text.contains("\"kylin-tools\"")) return
-        val marker = "\"@deepseek-ai/dsh-web-app\","
-        if (!text.contains(marker)) return // unexpected manifest shape — leave untouched
-        manifest.writeText(text.replace(marker, "\"@deepseek-ai/dsh-web-app\",\n        \"kylin-tools\""))
+        // Rebuild the bundle list wholesale: splicing entries into the middle
+        // of an existing array is comma-error-prone (one bad launch already).
+        val desired = listOf(
+            "\"@deepseek-ai/dsh-base\"",
+            "\"@deepseek-ai/dsh-web-app\"",
+            // Sidebar-terminal backend; kylin-tools' patch layer points its
+            // bash PTY at /system/bin/sh (mksh).
+            "\"@deepseek-ai/dsh-experimental-terminal-bundle\"",
+            "\"kylin-tools\"",
+        )
+        // Preserve any other bundle the user added beyond our known set.
+        val known = desired.toSet()
+        val extra = Regex("\"([^\"]+)\"")
+            .findAll(text.substringAfter("\"bundles\"", "[").substringBefore(']'))
+            .map { "\"${it.groupValues[1]}\"" }.filter { it !in known }.toList()
+        val bundles = (desired + extra).joinToString(",\n        ")
+        manifest.writeText(
+            "{\n" +
+                "  \"name\": \"dsh-profile-web\",\n" +
+                "  \"private\": true,\n" +
+                "  \"dependencies\": {},\n" +
+                "  \"dsh\": {\n" +
+                "    \"profile\": {\n" +
+                "      \"bundles\": [\n" +
+                "        $bundles\n" +
+                "      ]\n" +
+                "    }\n" +
+                "  }\n" +
+                "}\n"
+        )
     }
 
     private const val OPT_OUT_MARKER = "# dsh-android-preseed-off"

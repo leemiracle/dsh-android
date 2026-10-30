@@ -573,3 +573,24 @@
         name: '@deepseek-ai/dsh-plugin-market/tools'
         disabled: !!js '!ctx.get(''profileContext'')'
 # == kylin-tools
+# Terminal panel: dsh-experimental-terminal-bundle's rows land in an earlier
+# layer (the profile's bundle list places it before kylin-tools), so retarget
+# the bash PTY backend at Android's mksh — the sidebar terminal then gives a
+# real device shell. Also route the stock web_search tool at the kylin-ddg
+# provider this bundle registers (config beats the env var).
+- id: optional-terminal-bash
+  config:
+    shellPath: /system/bin/sh
+    shellArgs:
+      - -i
+- id: web
+  config:
+    searchProvider: kylin-ddg
+    fetchProvider: http
+# Browser panel: upstream gates ui-sidebar-browser to the desktop profile
+# (disabled: profileContext.name !== 'desktop'); this APK IS the desktop.
+# Web-profile builds render pages in a plain iframe, which Android WebView
+# serves fine — and the split proxy policy already routes non-loopback
+# iframe traffic through the host clash tunnel.
+- id: ui-sidebar-browser
+  disabled: false
