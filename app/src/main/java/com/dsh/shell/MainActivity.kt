@@ -145,6 +145,18 @@ class MainActivity : Activity() {
                     // made kdocs "never load". Back returns to the shell UI.
                     return false
                 }
+
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    // Wire the panel-bridge every load (SPA survives; cheap).
+                    android.util.Log.d("DshMain", "onPageFinished: $url")
+                    view?.evaluateJavascript(
+                        "(function(){try{eval(" +
+                            jsonEscape(BrowserOverlay.BRIDGE_JS) +
+                            ");return 'OK'}catch(e){return 'ERR:'+e.message}})()"
+                    ) { r ->
+                        android.util.Log.d("DshMain", "bridge inject -> ${r?.take(120)}")
+                    }
+                }
             }
             webChromeClient = object : android.webkit.WebChromeClient() {
                 override fun onCreateWindow(
@@ -180,6 +192,12 @@ class MainActivity : Activity() {
         }
         root.addView(webView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+
+        // Native engine behind the sidebar browser panel: injected script in
+        // the dsh UI forwards panel navigations here; state flows back.
+        webView.addJavascriptInterface(BrowserOverlay, "kylinBridge")
+        HostShell.bind { js -> runOnUiThread { webView.evaluateJavascript(js, null) } }
+        BrowserOverlay.attach(this, root)
 
         // Split proxy policy: loopback (the local dsh UI) must stay DIRECT or
         // a system-wide proxy wedges the whole shell; everything else — the
@@ -222,6 +240,10 @@ class MainActivity : Activity() {
         }
     }
 
+    /** JSON-stringify a JS snippet for safe embedding inside an eval("..."). */
+    private fun jsonEscape(s: String): String =
+        org.json.JSONObject.quote(s)
+
     override fun onDestroy() {
         runCatching { unregisterReceiver(receiver) }
         webView.destroy()
@@ -230,13 +252,20 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        // 1) The sidebar browser panel's engine owns Back while a page in it
+        //    has history — pressing Back must page back, not leave the app.
+        if (BrowserOverlay.activeCanGoBack()) {
+            BrowserOverlay.activeGoBack()
+            return
+        }
         if (webView.visibility == View.VISIBLE) {
+            // 2) The shell WebView itself (frame-busted pages etc.).
             if (webView.canGoBack()) {
                 webView.goBack()
                 return
             }
-            // A frame-busted external page sits at the top with an empty
-            // history; reload the shell UI instead of leaving the app.
+            // 3) A frame-busted external page sits at the top with an empty
+            //    history; reload the shell UI instead of leaving the app.
             val offShell = webView.url?.let { u ->
                 !u.startsWith("http://127.0.0.1") && !u.startsWith("http://localhost")
             } == true
