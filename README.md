@@ -106,21 +106,26 @@ dsh 自带的多标签右侧栏（ui-dockkit），两项关键适配：
 时序），关掉 tab 重开（或先建 tab 再输入）即正常；frame-busting 站点（百度搜索
 结果页等）可能把顶层导航劫走——返回键会自动 reload 壳 UI 兜底。
 
-### 壳内浏览器窗口（办公站正解）
+### 壳内浏览器窗口 + 面板原生引擎（办公站正解）
 
-iframe 面板对反嵌/跨域 302 的办公站（kdocs/WPS/腾讯文档）天然不适配——
-`DshBrowserActivity` 把**系统 WebView 全屏窗口叠在 dsh UI 之上**（同 task，返回键
-即回 dsh）：
+浏览器面板的 UI（tab 条/地址栏/工具栏）100% 保留 dsh，**内容区换成原生 WebView**
+（`BrowserOverlay` 单例引擎精确覆盖面板内容 rect）：
 
-- 入口：dsh UI 里任何 `window.open`/`target=_blank`（含面板「在系统浏览器中打开」
-  按钮）→ MainActivity `onCreateWindow` 捕获（**载体 WebView 的 URL 投递不触发
-  `shouldOverrideUrlLoading`，`onPageStarted` 才是可靠捕获点**；裸 `window.open`
-  无 user-gesture 会被弹窗拦截器挡，需真实点击）
-- 真浏览器语义：cookie/localStorage/缓存全部持久（app 级 profile，登录一次重启
-  仍在——已验证）、第三方 cookie（办公登录）、非 `wv` UA、`_blank` 同窗接管、
-  自定义 scheme 剥内层 URL
-- 窗口是独立 CDP target——跨域 iframe 不可达的 agent 自动化在此可达（未来
-  web_* 工具面的落点）
+- iframe 被注入脚本置空，URL 由原生引擎渲染——无反嵌/跨域 302 限制，
+  cookie/localStorage/缓存 app 级持久（登录一次全 tab 共享，重启仍在）
+- **单例引擎 + tab 记忆**（多实例 key 路由在分栏 tab id 上打架后收敛）：JS 侧
+  per-tab URL 表，切 tab 时回放该 tab 的页面；后退/前进/刷新/地址栏全部接管
+- 后退键优先网页后退（原先直接退后台）；全屏弹窗自动让路；输入法 adjustResize
+- 钉版坑：MutationObserver 回调里**无条件 setAttribute 会自触发无限微任务循环**
+  （整页饿死、侧栏 0 宽）；WebView 静止时**暂停 rAF**（rect 流要用 setTimeout）；
+  `evaluateJavascript` 注 Kotlin raw string 返回 null 要走 `eval(jsonEscape(...))`；
+  载体 WebView 的 URL 投递不触发 `shouldOverrideUrlLoading`（`onPageStarted`
+  才可靠）；GONE 的 WebView 视口 0×0
+- `DshBrowserActivity`：`window.open`/外链的全屏窗口（同 task 返回即回 dsh），
+  独立 CDP target（agent 自动化可达，跨域 iframe 永不可达）
+
+真机实证：kdocs 面板内 621×740 对齐渲染；tab A(kdocs)↔tab B(baidu) 切换各自
+恢复；后退键网页后退不退 app；localStorage probe 跨窗口/重启存活。
 
 ### 已知的一次性步骤
 
