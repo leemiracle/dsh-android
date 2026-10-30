@@ -134,6 +134,24 @@ dsh 自带的多标签右侧栏（ui-dockkit），两项关键适配：
 - preset 重述 patch 由 `--dump-config` 输出生成（对 dsh 0.2.1-rc.2 的四个 preset）；
   **升级 DSH_NPM_VERSION 时需重生成** `tools/kylin-tools/cordis.patch.yml`。
 
+## 内置 Linux 用户态（targetSdk 28 + Termux rootfs）
+
+主 APK 降到 **targetSdk 28**（Termux 的生存之道）：app 数据目录恢复可执行 →
+**Termux bootstrap rootfs 直接装进 `files/dsh/linux`**（bash 5.3/coreutils/grep/
+sed/awk/apt，398 个二进制），三处消费：
+
+- **终端面板**：PTY 自动指向 rootfs 的 bash（用户层 patch 动态写入——rootfs 在
+  则 bash、不在则回落 mksh；服务进程注入 `PATH`/`LD_LIBRARY_PATH` 供动态链接）
+- **`linux` 工具**（agent 会话）：kylin-tools 注册，经 127.0.0.1:33990 桥执行
+  rootfs 命令（60s 上限）——mksh `bash` 工具没有的程序/GNU 行为走这里
+- **bootstrap 安装**（一次性）：宿主 `python3 -m http.server 8390` + `adb reverse
+  tcp:8390 tcp:8390` → `POST /linux/bootstrap {"src":"http://127.0.0.1:8390/bootstrap-aarch64.zip"}`
+  （官方源 termux-packages releases；设备 /sdcard 读取在 28 下要运行时权限，走
+  隧道下载免权限；下载必须 `Proxy.NO_PROXY`——系统代理劫持 loopback 会 502）
+
+targetSdk 28 的取舍：FGS/WebView/ProxyController/CDP 全部行为不变（都早于 29）；
+废弃的是 scoped storage 等新约束（kiosk 工具 app 反而受益）。
+
 ## 使用
 
 首启约 30-60 秒（解 zip）；状态页变标题后 WebView 自动进入。通知栏常驻「停止」
