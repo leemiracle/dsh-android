@@ -106,6 +106,22 @@ dsh 自带的多标签右侧栏（ui-dockkit），两项关键适配：
 时序），关掉 tab 重开（或先建 tab 再输入）即正常；frame-busting 站点（百度搜索
 结果页等）可能把顶层导航劫走——返回键会自动 reload 壳 UI 兜底。
 
+### 壳内浏览器窗口（办公站正解）
+
+iframe 面板对反嵌/跨域 302 的办公站（kdocs/WPS/腾讯文档）天然不适配——
+`DshBrowserActivity` 把**系统 WebView 全屏窗口叠在 dsh UI 之上**（同 task，返回键
+即回 dsh）：
+
+- 入口：dsh UI 里任何 `window.open`/`target=_blank`（含面板「在系统浏览器中打开」
+  按钮）→ MainActivity `onCreateWindow` 捕获（**载体 WebView 的 URL 投递不触发
+  `shouldOverrideUrlLoading`，`onPageStarted` 才是可靠捕获点**；裸 `window.open`
+  无 user-gesture 会被弹窗拦截器挡，需真实点击）
+- 真浏览器语义：cookie/localStorage/缓存全部持久（app 级 profile，登录一次重启
+  仍在——已验证）、第三方 cookie（办公登录）、非 `wv` UA、`_blank` 同窗接管、
+  自定义 scheme 剥内层 URL
+- 窗口是独立 CDP target——跨域 iframe 不可达的 agent 自动化在此可达（未来
+  web_* 工具面的落点）
+
 ### 已知的一次性步骤
 
 - 全新 DSH_HOME 首启：Web UI 出现「选择工作区」屏——手点 `wps` 一次即进入（以及
@@ -149,4 +165,4 @@ bash /usr-data/data2/kylin/kylin-agent/bin/kylin100.sh tunnel
 - 附件上传（layout 6 修复）：内容寻址去重的两处 `link(2)`（别名=copy 保源、staged=rename）同样被 SELinux 禁——已加 android 分支
 - `dsh-experimental-inspector`、libreoffice 文档预览（wasm 146MB）已裁，功能缺失但不影响主链
 - 只带 arm64-v8a；x86_64 需换 Termux x86_64 deb 同法打包
-- 版本: 壳 0.1.0 · dsh 0.2.1-rc.2 · node 24.22.1 · runtime layout 11（2026-10-30 真机验证：消息收发+会话落盘+工具替换+终端面板+浏览器面板全绿；附件上传待用户实测）
+- 版本: 壳 0.1.0 · dsh 0.2.1-rc.2 · node 24.22.1 · runtime layout 11（2026-10-30 真机验证：消息收发+会话落盘+工具替换+终端面板+浏览器面板+壳内浏览器窗口全绿；附件上传待用户实测）
