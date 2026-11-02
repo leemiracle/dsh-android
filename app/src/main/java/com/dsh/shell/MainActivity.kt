@@ -197,8 +197,14 @@ class MainActivity : Activity() {
                         override fun onPageStarted(v: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                             if (!delivered && url != null) {
                                 delivered = true
-                                android.util.Log.d("DshMain", "window.open captured: $url")
-                                DshBrowserActivity.start(this@MainActivity, url)
+                                android.util.Log.d("DshMain", "window.open -> panel: $url")
+                                // The sidebar panel is the one true browser
+                                // surface: chat links (target=_blank/window.open)
+                                // open THERE, not in a covering window.
+                                HostShell.evaluate(
+                                    "window.__kylinOpenInPanel && window.__kylinOpenInPanel(" +
+                                        org.json.JSONObject.quote(url) + ")"
+                                )
                                 v?.stopLoading()
                                 tmp.post { runCatching { tmp.destroy() } }
                             }
