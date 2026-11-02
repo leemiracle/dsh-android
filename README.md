@@ -152,6 +152,15 @@ sed/awk/apt，398 个二进制），三处消费：
 targetSdk 28 的取舍：FGS/WebView/ProxyController/CDP 全部行为不变（都早于 29）；
 废弃的是 scoped storage 等新约束（kiosk 工具 app 反而受益）。
 
+### 「网页无法打开」钉版（431 cookie 累积，2026-11-02）
+
+WebView 卡 `ERR_HTTP_RESPONSE_CODE_FAILURE` 的根因：dsh 的 auth cookie 名 =
+`"dsh-auth-"+sha256(authority)`，**authority 含端口**——每 boot 换端口 = 每 boot 新
+cookie 名，旧的 300 字节 JWT 在 WebView jar 里躺 30 天，累积到 Cookie 头溢出 → 服务端
+**431**（curl 用新 jar 一切正常——只有带历史的 WebView 会炸）。修复：build-runtime
+step 4g（哈希只按 host，每 boot 同名覆盖）+ loadUi 前清 `dsh-auth-*` 旧 cookie +
+服务换端口时 WebView 自动重载。
+
 ### apt/pkg 生态（装任意 Linux 工具）
 
 bootstrap 的 apt/dpkg 全链硬编码 Termux 前缀，`ensureRootfsFixups`（boot 幂等）整体
