@@ -594,3 +594,9 @@
 # iframe traffic through the host clash tunnel.
 - id: ui-sidebar-browser
   disabled: false
+# The upstream terminal_* tools hard-require a sandbox backend Android has
+# not (terminal_open -> SANDBOX_UNAVAILABLE). kylin-tools registers
+# term_open/term_send/term_read/term_list/term_close against the SAME
+# terminals service the sidebar panel uses (exec.agent as owner).
+- id: optional-tool-terminal
+  disabled: true

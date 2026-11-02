@@ -163,6 +163,113 @@ const linuxTool = defineTool({
 	},
 });
 
+// -------------------------------------------------- term_* tools: drive the sidebar terminal panel
+// The upstream terminal_* tools hard-require a sandbox backend Android has
+// not (SANDBOX_UNAVAILABLE) — these reuse the SAME ctx.terminals service
+// (the sidebar panel's PTYs) with exec.agent as owner, so sessions spawned
+// here live in the panel's session-scope registry: what the user sees in
+// the terminal panel is what these tools control.
+
+let ctxRef = null;
+
+function requireTerminals() {
+	const terminals = ctxRef?.get?.("terminals");
+	if (terminals === undefined) throw new Error("term_* tools: terminals service unavailable");
+	return terminals;
+}
+
+function requireAgent(exec) {
+	if (exec?.agent === undefined) throw new Error("term_* tools require an initiating agent");
+	return exec.agent;
+}
+
+const termTools = [
+	defineTool({
+		name: "term_open",
+		description:
+			"Create a persistent terminal session in the sidebar terminal panel (a real PTY the user can watch and type into). " +
+			"Returns the sessionId used by term_send/term_read. The session stays alive across tool calls.",
+		parameters: {
+			name: { type: "string", description: "Optional display name, e.g. 'build'." },
+		},
+		output: { schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } }, render: (_a, v) => [{ type: "text", text: v.result }] },
+		async execute(args, exec) {
+			const owner = requireAgent(exec);
+			const s = await requireTerminals().spawn(owner, {
+				type: "shell",
+				...(args.name ? { name: String(args.name) } : {}),
+			});
+			return { result: `终端已创建：sessionId=${s.id} name=${s.name ?? "-"}（面板终端区可见；用 term_send 发命令）` };
+		},
+	}),
+	defineTool({
+		name: "term_send",
+		description:
+			"Send a command to a persistent terminal (Enter submitted by default) and wait for output to settle. " +
+			"The command RUNS VISIBLY in the sidebar terminal panel — the user watches it execute.",
+		parameters: {
+			sessionId: { type: "string", description: "Terminal session id from term_open." },
+			text: { type: "string", description: "Command/text to write." },
+			submit: { type: "boolean", description: "Submit Enter after text (default true)." },
+		},
+		output: { schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } }, render: (_a, v) => [{ type: "text", text: v.result }] },
+		async execute(args, exec) {
+			const owner = requireAgent(exec);
+			const id = String(args.sessionId ?? "");
+			if (!id) return { result: "sessionId required" };
+			const terminals = requireTerminals();
+			const result = await terminals.startSend(owner, id, {
+				text: String(args.text ?? ""),
+				submit: args.submit ?? true,
+				signal: exec.signal,
+			}).done;
+			const vp = typeof result.viewport === "string" ? result.viewport : JSON.stringify(result).slice(0, 2000);
+			return { result: `waitReason=${result.waitReason ?? "-"} status=${result.sessionStatus ?? "-"}\n${vp}` };
+		},
+	}),
+	defineTool({
+		name: "term_read",
+		description: "Read a page of retained output from a persistent terminal without sending input.",
+		parameters: {
+			sessionId: { type: "string", description: "Terminal session id." },
+			lines: { type: "number", description: "Max lines to read (default 60)." },
+		},
+		output: { schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } }, render: (_a, v) => [{ type: "text", text: v.result }] },
+		async execute(args, exec) {
+			const owner = requireAgent(exec);
+			const id = String(args.sessionId ?? "");
+			if (!id) return { result: "sessionId required" };
+			const r = await requireTerminals().read(owner, id, { lines: args.lines ?? 60 });
+			const text = typeof r === "string" ? r : (r.text ?? JSON.stringify(r));
+			return { result: String(text).slice(0, 6000) };
+		},
+	}),
+	defineTool({
+		name: "term_list",
+		description: "List persistent terminal sessions of this conversation.",
+		parameters: {},
+		output: { schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } }, render: (_a, v) => [{ type: "text", text: v.result }] },
+		async execute(_args, exec) {
+			const list = requireTerminals().list(requireAgent(exec));
+			if (!list.length) return { result: "(no terminal sessions)" };
+			return { result: list.map((s) => `${s.id} name=${s.name ?? "-"} status=${s.status ?? "?"}`).join("\n") };
+		},
+	}),
+	defineTool({
+		name: "term_close",
+		description: "Close a persistent terminal session.",
+		parameters: { sessionId: { type: "string", description: "Terminal session id." } },
+		output: { schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } }, render: (_a, v) => [{ type: "text", text: v.result }] },
+		async execute(args, exec) {
+			const owner = requireAgent(exec);
+			const id = String(args.sessionId ?? "");
+			if (!id) return { result: "sessionId required" };
+			await requireTerminals().kill(owner, id);
+			return { result: `closed ${id}` };
+		},
+	}),
+];
+
 // -------------------------------------------------- web_* tools: drive the sidebar browser panel
 // browser-use semantics on the shell's OWN engine (BrowserOverlay): the
 // page the user sees in the panel is the page these tools control.
@@ -373,6 +480,7 @@ function parseBing(html, limit) {
 // --------------------------------------------------------------- composition
 
 function apply(ctx) {
+	ctxRef = ctx;
 	const web = ctx.get("web");
 	if (web !== undefined) {
 		try {
@@ -393,7 +501,7 @@ function apply(ctx) {
 		} catch {
 			/* already registered by another composition */
 		}
-		for (const t of webTools) {
+		for (const t of [...webTools, ...termTools]) {
 			try {
 				tools.register(t);
 			} catch {
