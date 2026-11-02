@@ -124,6 +124,8 @@ class DshService : Service() {
                 broadcast(STATE_INSTALLING, "$msg $pct%")
             }
             DshRuntime.preseedModelConfig(this)
+            // Rootfs installed before the apt-config era: backfill it.
+            LinuxSandbox.ensureAptConfig(this)
 
             broadcast(STATE_STARTING, "正在启动服务器…")
             startServer()
@@ -195,6 +197,12 @@ class DshService : Service() {
                 val linux = LinuxSandbox.root(this@DshService)
                 put("PATH", "${File(linux, "bin")}:/system/bin:/vendor/bin")
                 put("LD_LIBRARY_PATH", nativeDir + ":" + File(linux, "lib"))
+                // Rootfs env for the terminal: apt/dpkg need APT_CONFIG
+                // (compiled-in paths point at Termux's prefix), adb talks to
+                // the HOST adb server via the reverse tunnel.
+                LinuxSandbox.env(this@DshService).forEach { (k, v) ->
+                    if (k != "PATH" && k != "LD_LIBRARY_PATH") put(k, v)
+                }
                 // Desktop-ish locale keeps toolchain output sane on the device.
                 put("LANG", "C.UTF-8")
                 // Termux node compiles userInfo().shell as its own bash prefix,

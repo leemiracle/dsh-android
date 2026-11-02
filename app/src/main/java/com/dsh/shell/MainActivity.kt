@@ -221,13 +221,13 @@ class MainActivity : Activity() {
 
         registerReceiver(receiver, IntentFilter(DshService.BROADCAST_STATUS),
             RECEIVER_NOT_EXPORTED)
-        startService(Intent(this, DshService::class.java).setAction(DshService.ACTION_START))
+        startForegroundService(Intent(this, DshService::class.java).setAction(DshService.ACTION_START))
     }
 
     override fun onStart() {
         super.onStart()
         if (!userStopped) {
-            startService(Intent(this, DshService::class.java).setAction(DshService.ACTION_START))
+            startForegroundService(Intent(this, DshService::class.java).setAction(DshService.ACTION_START))
         }
     }
 

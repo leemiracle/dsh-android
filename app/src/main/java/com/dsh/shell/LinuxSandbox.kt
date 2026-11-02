@@ -44,12 +44,14 @@ object LinuxSandbox {
     fun start(ctx: Context) {
         val t = Thread({
             runCatching {
+                android.util.Log.i("KylinOv", "linux bridge starting on $PORT")
                 val server = ServerSocket(PORT, 8, InetAddress.getByName("127.0.0.1"))
+                android.util.Log.i("KylinOv", "linux bridge listening")
                 while (true) {
                     val s = server.accept()
                     pool.execute { handle(s, ctx.applicationContext) }
                 }
-            }
+            }.onFailure { android.util.Log.e("KylinOv", "linux bridge failed", it) }
         }, "dsh-linux-bridge").apply { isDaemon = true }
         t.start()
     }
@@ -191,12 +193,181 @@ object LinuxSandbox {
             }
             File(prefix, "tmp").mkdirs()
             File(prefix, "home").mkdirs()
+            writeAptConfig(prefix)
             if (sh(ctx).exists()) {
                 "bootstrap OK：$entries 条目 + $linkCount 链接，耗时 ${(System.currentTimeMillis() - started) / 1000}s"
             } else "解包完成但 ${sh(ctx)} 缺失（symlink 重建失败？）"
         } catch (t: Throwable) {
             "bootstrap 失败：${t.javaClass.simpleName}: ${t.message?.take(120)}"
         }
+    }
+
+    /**
+     * apt/dpkg binaries compile their default paths against Termux's prefix
+     * (/data/data/com.termux/files/usr) — at OUR prefix they die with
+     * "Unable to determine a suitable packaging system type". APT_CONFIG
+     * redirects the whole Dir family here; consumers must export it (see
+     * [env] below and DshService).
+     */
+    /** Rewrite apt.conf for an already-installed rootfs (ours; keep fresh). */
+    fun ensureAptConfig(ctx: Context) {
+        val prefix = root(ctx)
+        if (!sh(ctx).exists()) return
+        writeAptConfig(prefix)
+        mergeCaBundle(ctx, prefix)
+        ensureRootfsFixups(prefix)
+    }
+
+    /**
+     * One-time fixups a bootstrap needs before apt/dpkg work at OUR prefix
+     * (all idempotent):
+     *  - shebangs point at Termux's absolute prefix → rewrite to ours (the
+     *    apt-key failure was exactly this);
+     *  - trusted.gpg.d symlinks → same problem, re-point into our share/;
+     *  - $PREFIX/data/data/com.termux/files/usr → $PREFIX: Termux debs carry
+     *    full absolute paths; with dpkg --root + tar --keep-directory-symlink
+     *    this lands ./data/.../usr/bin/git onto OUR bin/;
+     *  - dpkg helper dummies in sbin (Termux ships them via termux-tools);
+     *  - apt state/log/cache dirs the bootstrap omits.
+     */
+    private fun ensureRootfsFixups(prefix: File) {
+        runCatching {
+            val sh = File(prefix, "bin/sh").absolutePath
+            // 1. shebang rewrite
+            val bin = File(prefix, "bin")
+            bin.listFiles()?.forEach { f ->
+                if (f.isFile && f.length() < 512 * 1024) {
+                    runCatching {
+                        val head = f.inputStream().use { s ->
+                            ByteArray(minOf(120L, f.length()).toInt()).also { s.read(it) }
+                        }.decodeToString()
+                        if (head.startsWith("#!/data/data/com.termux/files/usr/")) {
+                            val text = f.readText()
+                            f.writeText(text.replaceFirst(
+                                "#!/data/data/com.termux/files/usr",
+                                "#!$prefix"
+                            ))
+                            f.setExecutable(true, false)
+                        }
+                    }
+                }
+            }
+            // 2. keyring symlinks
+            val keyringSrc = File(prefix, "share/termux-keyring")
+            val keyringDst = File(prefix, "etc/apt/trusted.gpg.d")
+            if (keyringSrc.isDirectory) {
+                keyringDst.mkdirs()
+                keyringSrc.listFiles()?.forEach { k ->
+                    val link = File(keyringDst, k.name)
+                    link.delete()
+                    runCatching { android.system.Os.symlink(k.absolutePath, link.absolutePath) }
+                }
+            }
+            // 3. Termux absolute-path landing symlink
+            val shim = File(prefix, "data/data/com.termux/files")
+            shim.mkdirs()
+            val usrLink = File(shim, "usr")
+            if (!usrLink.exists()) {
+                runCatching { android.system.Os.symlink(prefix.absolutePath, usrLink.absolutePath) }
+            }
+            // 4. dpkg helper dummies
+            val sbin = File(prefix, "sbin").apply { mkdirs() }
+            for (name in listOf("ldconfig", "install-info", "start-stop-daemon")) {
+                val f = File(if (name == "start-stop-daemon") bin else sbin, name)
+                if (!f.exists()) {
+                    f.writeText("#!$sh\nexit 0\n")
+                    f.setExecutable(true, false)
+                }
+            }
+            // 5. apt state dirs
+            for (d in listOf(
+                "var/log/apt", "var/cache/apt/archives/partial",
+                "var/lib/apt/lists/partial", "var/lib/dpkg/updates"
+            )) File(prefix, d).mkdirs()
+        }
+    }
+
+    /**
+     * The bootstrap's CA set can lag (e.g. Google Trust Services WE1 — the
+     * termux repo's current chain — was "issuer unknown" from it). The app's
+     * own rt/cert.pem (the bundle node already verifies the outside world
+     * with, through the tunnel) is newer: merge both into the rootfs bundle.
+     * The merged file must be PURE PEM — a comment line made gnutls (apt's
+     * https method) distrust the whole bundle; idempotency marker is a
+     * sidecar file instead.
+     */
+    private fun mergeCaBundle(ctx: Context, prefix: File) {
+        runCatching {
+            val appCa = DshRuntime.certPem(ctx)
+            if (!appCa.exists()) return
+            val dst = File(prefix, "etc/tls/cert.pem")
+            if (!dst.exists()) return
+            val marker = File(prefix, "etc/tls/.dsh-merged-ca")
+            if (marker.exists()) return
+            val appText = appCa.readText().lines()
+                .filterNot { it.trimStart().startsWith("#") }.joinToString("\n")
+            val rootText = dst.readText().lines()
+                .filterNot { it.trimStart().startsWith("#") }.joinToString("\n")
+            dst.writeText(appText + "\n" + rootText + "\n")
+            marker.writeText("ok")
+        }
+    }
+
+    private fun writeAptConfig(prefix: File) {
+        val etc = File(prefix, "etc/apt")
+        etc.mkdirs()
+        File(etc, "apt.conf").writeText(
+            "Dir \"" + prefix.absolutePath + "\";\n" +
+                "Dir::Etc \"" + File(prefix, "etc/apt").absolutePath + "\";\n" +
+                "Dir::Etc::parts \"" + File(prefix, "etc/apt/apt.conf.d").absolutePath + "\";\n" +
+                "Dir::Etc::sourcelist \"" + File(prefix, "etc/apt/sources.list").absolutePath + "\";\n" +
+                "Dir::Etc::sourceparts \"" + File(prefix, "etc/apt/sources.list.d").absolutePath + "\";\n" +
+                "Dir::State \"" + File(prefix, "var/lib/apt").absolutePath + "\";\n" +
+                "Dir::State::status \"" + File(prefix, "var/lib/dpkg/status").absolutePath + "\";\n" +
+                "Dir::Cache \"" + File(prefix, "var/cache/apt").absolutePath + "\";\n" +
+                "Dir::Bin::dpkg \"" + File(prefix, "bin/dpkg").absolutePath + "\";\n" +
+                // Same compiled-prefix problem: apt-key and gpgv live in OUR bin.
+                "Dir::Bin::apt-key \"" + File(prefix, "bin/apt-key").absolutePath + "\";\n" +
+                "Dir::Bin::gpgv \"" + File(prefix, "bin/gpgv").absolutePath + "\";\n" +
+                "Apt::Key::Archive-Keyring \"" + File(prefix, "etc/apt/trusted.gpg").absolutePath + "\";\n" +
+                "Apt::Key::Archive-Keyring-Unsigned \"" + File(prefix, "etc/apt/trusted.gpg~").absolutePath + "\";\n" +
+                "Dir::Bin::methods \"" + File(prefix, "lib/apt/methods").absolutePath + "\";\n" +
+                // Termux debs carry full paths (./data/data/com.termux/files/usr/...);
+                // --root makes dpkg unpack under OUR prefix, where the
+                // data/data/com.termux/files/usr symlink (see install())
+                // redirects them onto the real rootfs layout.
+                "DPkg::Options { \"--root=" + prefix.absolutePath + "\"; };\n" +
+                "DPkg::Path \"" + File(prefix, "bin").absolutePath + ":" +
+                    File(prefix, "sbin").absolutePath + ":/system/bin:/vendor/bin\";\n" +
+                // The https method's compiled-in CA path is Termux's prefix;
+                // redirect it or every fetch dies with "No system certificates".
+                // (CaInfo ONLY — SslCert would be a client certificate.)
+                "Acquire::https::CaInfo \"" + File(prefix, "etc/tls/cert.pem").absolutePath + "\";\n" +
+                "APT::Get::AllowUnauthenticated \"false\";\n"
+        )
+    }
+
+    /** Extra env every rootfs consumer should carry. */
+    fun env(ctx: Context): Map<String, String> {
+        val prefix = root(ctx)
+        val m = LinkedHashMap<String, String>()
+        m["PATH"] = File(prefix, "bin").absolutePath
+        m["LD_LIBRARY_PATH"] = File(prefix, "lib").absolutePath
+        m["HOME"] = File(prefix, "home").absolutePath
+        m["PREFIX"] = prefix.absolutePath
+        m["TMPDIR"] = File(prefix, "tmp").absolutePath
+        m["LANG"] = "C.UTF-8"
+        m["APT_CONFIG"] = File(prefix, "etc/apt/apt.conf").absolutePath
+        m["DPKG_ADMINDIR"] = File(prefix, "var/lib/dpkg").absolutePath
+        // Compiled-in CA paths point at Termux's prefix too — point the usual
+        // env knobs at our cert bundle (curl/wget/git/openssl honor these).
+        val ca = File(prefix, "etc/tls/cert.pem").absolutePath
+        m["SSL_CERT_FILE"] = ca
+        m["CURL_CA_BUNDLE"] = ca
+        // Device-side adb (android-tools from the Termux repo) talks to the
+        // HOST adb server over the reverse tunnel — the kylin-agent semantic.
+        m["ADB_SERVER_SOCKET"] = "tcp:127.0.0.1:5037"
+        return m
     }
 
     /** Run a command with the rootfs shell (60s cap, 60KB output cap). */
@@ -207,12 +378,7 @@ object LinuxSandbox {
             val p = ProcessBuilder(sh(ctx).absolutePath, "-c", cmd)
                 .directory(File(root(ctx), "home"))
                 .redirectErrorStream(true)
-            p.environment()["PATH"] = File(root(ctx), "bin").absolutePath
-            p.environment()["LD_LIBRARY_PATH"] = File(root(ctx), "lib").absolutePath
-            p.environment()["HOME"] = File(root(ctx), "home").absolutePath
-            p.environment()["PREFIX"] = root(ctx).absolutePath
-            p.environment()["TMPDIR"] = File(root(ctx), "tmp").absolutePath
-            p.environment()["LANG"] = "C.UTF-8"
+            p.environment().putAll(env(ctx))
             val proc = p.start()
             val out = StringBuilder()
             val t = Thread {
