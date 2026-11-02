@@ -439,9 +439,18 @@ const ddgProvider = {
 		const query = String(request?.query ?? "").trim();
 		if (query === "") return { sources: [] };
 		const limit = Number.isFinite(request?.maxResults) ? request.maxResults : 8;
+		// PRIMARY: the panel engine (a REAL WebView). Every search engine
+		// challenges headless fetches from the proxy egress IP (bing serves
+		// junk SERPs, baidu/ddg throw verification walls) — but the engine's
+		// full browser fingerprint sails through. Open the baidu SERP there
+		// and scrape the result cards via the bridge.
+		try {
+			const src = await engineSearch(query, limit, signal);
+			if (src.length > 0) return { sources: src };
+		} catch {
+			/* fall through to headless */
+		}
 		const ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
-		// DuckDuckGo's html endpoint throws an anomaly challenge at some egress
-		// IPs; Bing's results page is the reliable path through the proxy.
 		try {
 			const r = await fetch("https://www.bing.com/search?q=" + encodeURIComponent(query), {
 				headers: { "user-agent": ua, "accept-language": "zh-CN,zh;q=0.9,en;q=0.8" },
@@ -468,6 +477,34 @@ const ddgProvider = {
 		}
 	},
 };
+
+/** Search via the panel engine: baidu SERP in the real WebView, scrape cards. */
+async function engineSearch(query, limit, signal) {
+	const open = await fetch("http://127.0.0.1:33990/web/open", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ url: "https://www.baidu.com/s?wd=" + encodeURIComponent(query) }),
+		signal: signal ?? AbortSignal.timeout(45_000),
+	});
+	if (!open.ok) throw new Error(`engine open ${open.status}`);
+	const dom = await fetch("http://127.0.0.1:33990/web/dom", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ selector: ".c-result" }),
+		signal: signal ?? AbortSignal.timeout(20_000),
+	});
+	const text = (await dom.json()).result ?? "";
+	if (!text.startsWith("命中")) return [];
+	const lines = text.split("\n").filter((l) => l.startsWith("·"));
+	const sources = [];
+	for (const line of lines) {
+		const title = line.slice(1).trim().slice(0, 120);
+		if (!title) continue;
+		sources.push({ title, url: "https://www.baidu.com/s?wd=" + encodeURIComponent(query), snippet: title });
+		if (sources.length >= limit) break;
+	}
+	return sources;
+}
 
 /** Pull (title, url, snippet) out of a Bing results page. */
 function parseBing(html, limit) {

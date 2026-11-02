@@ -411,7 +411,7 @@ object BrowserOverlay {
   var activeKey = null; // tab hosting the browser panel right now
 
   function paneOf(scope) {
-    return scope && (scope.closest('[data-dockkit-pane], section[class*="pane"], [class*="tabHost"]'));
+    try { return scope && scope.closest('[data-dockkit-pane], section[class*="pane"], [class*="tabHost"]'); } catch (e) { return null; }
   }
   function activeTabKey() {
     // Scope to the pane hosting the browser panel: split panes each have a
@@ -504,11 +504,16 @@ object BrowserOverlay {
       var dr = dlg.getBoundingClientRect();
       if (dr.width > 300 && dr.height > 200) return '';
     }
-    var host = document.querySelector('[class*="SB_kFW_content"], [class*="SB_kFW_viewport"]');
+    // Anchor on containers that SURVIVE dsh unmounting the panel body:
+    // SB_kFW_content disappears when dsh reacts to our blanked iframe —
+    // fall through to the dockkit tab host body, which stays while the
+    // browser tab exists.
+    var host = document.querySelector('[class*="SB_kFW_content"], [class*="SB_kFW_viewport"]')
+            || document.querySelector('[class*="tabHostBody"]');
     if (!host) {
       var addr = document.querySelector('input[class*="address"]');
       if (!addr) return '';
-      host = addr.closest('[class*="SB_kFW_root"]');
+      host = addr.closest('[class*="SB_kFW_root"], [class*="tabHostBody"]');
       if (!host) return '';
     }
     var r = host.getBoundingClientRect();
@@ -518,12 +523,19 @@ object BrowserOverlay {
   var pending = false;
   function scheduleRect() {
     // setTimeout, NOT rAF: WebView suspends rAF when the page is visually
-    // idle, stalling the pending flag and killing the rect stream.
+    // idle, stalling the pending flag and killing the rect stream. The
+    // callback is guarded: a one-off rectSpec() throw (panel container
+    // momentarily absent mid-tab-switch) left pending stuck true and the
+    // stream dead forever — found by manual-feed-works/interval-dead.
     if (pending) return; pending = true;
     setTimeout(function () {
+      window.__rectN = (window.__rectN || 0) + 1;
+      try {
+        var s = rectSpec();
+        window.__lastSpec = s;
+        if (s !== lastRect) { lastRect = s; window.__sendN = (window.__sendN || 0) + 1; send('onRect', (activeKey||'') + '|' + s); }
+      } catch (e) { window.__rectErr = String(e).slice(0, 80); }
       pending = false;
-      var s = rectSpec();
-      if (s !== lastRect) { lastRect = s; send('onRect', (activeKey||'') + '|' + s); }
     }, 120);
   }
   setInterval(scheduleRect, 300);
@@ -566,37 +578,26 @@ object BrowserOverlay {
       });
       if (ex) ex.click();
     };
-    expandBar();
-    // no browser tab yet: fire BOTH paths — the add-tab picker click and the
-    // browser.new shortcut (Ctrl+T) — then poll up to 8s for the address
-    // bar (menus animate; one path always lands) and navigate.
+    // Single path: addTab + the 浏览器 picker row (addTab AND Ctrl+T both
+    // firing once opened an EMPTY extra tab — the active one was blank
+    // while the page lived in the other). Click addTab once; keep clicking
+    // the row until the address bar appears.
     var add = document.querySelector('button[class*="addTab"]');
     if (add) add.click();
-    var kd = function (down) {
-      document.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', {
-        key: 't', code: 'KeyT', ctrlKey: true, bubbles: true, cancelable: true
-      }));
-    };
-    kd(true); kd(false);
     var tries = 0;
-    var addClicked = false;
     var iv = setInterval(function () {
       tries += 1;
-      // Collapsed bar -> expand (ONLY when fully collapsed; never touch the
-      // layout otherwise — dsh remembers the bar width per session, and
-      // nudging it re-opens wide instead of the user's narrow sidebar).
-      var bar = document.querySelector('[class*="rightbarCol"]');
-      if ((!bar || bar.getBoundingClientRect().width < 50)) expandBar();
-      // open the tab exactly once, as soon as the strip is reachable
-      if (!addClicked) {
-        var a2 = document.querySelector('button[class*="addTab"]');
-        if (a2) { a2.click(); addClicked = true; }
+      if (document.querySelector('input[class*="address"]')) {
+        clearInterval(iv);
+        go();
+        send('onNavigate', (activeTabKey() || 'kp0') + '|' + url);
+        return;
       }
       // picker path: click the 浏览器 row whenever it appears (menu or start page)
       var leaf = [...document.querySelectorAll('body *')].find(function (e) {
         return e.children.length === 0 && (e.textContent || '').trim() === '浏览器';
       });
-      if (leaf && !document.querySelector('input[class*="address"]')) {
+      if (leaf) {
         var row = leaf;
         for (var i = 0; i < 6 && row.parentElement; i++) {
           row = row.parentElement;
@@ -605,11 +606,7 @@ object BrowserOverlay {
         }
         row.click();
       }
-      if (document.querySelector('input[class*="address"]')) {
-        clearInterval(iv);
-        go();
-        send('onNavigate', (activeTabKey() || 'kp0') + '|' + url);
-      } else if (tries > 26) {
+      if (tries > 26) {
         clearInterval(iv);
         // last resort: drive the engine directly even without a panel tab
         send('onNavigate', (activeTabKey() || 'kp0') + '|' + url);

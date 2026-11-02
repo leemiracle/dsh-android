@@ -218,6 +218,12 @@ class DshService : Service() {
                 // (DeepSeek search needs an API key this device has not).
                 put("DSH_WEB_SEARCH_PROVIDER", "kylin-ddg")
                 put("SSL_CERT_FILE", DshRuntime.certPem(this@DshService).absolutePath)
+                // Termux node's compiled-in CA path points at com.termux (unreachable
+                // here) — its default trust store is effectively EMPTY and every
+                // https fetch dies with UNABLE_TO_GET_ISSUER_CERT_LOCALLY (the
+                // web_search breakage). node honors NODE_EXTRA_CA_CERTS natively
+                // (SSL_CERT_FILE is NOT read by fetch/undici).
+                put("NODE_EXTRA_CA_CERTS", DshRuntime.certPem(this@DshService).absolutePath)
                 // Termux-rootfs binaries link against their own lib dir; the
                 // sidebar terminal's bash and the `linux` tool's children
                 // both need it (CANNOT LINK EXECUTABLE otherwise). Rootfs
