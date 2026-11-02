@@ -38,6 +38,11 @@ object BrowserOverlay {
     private var web: WebView? = null
     private var hostRoot: FrameLayout? = null
 
+    /** Last applied engine rect (view px) — pages lay out by the size they
+     *  FIRST see, so navigation must wait for a real panel rect. */
+    @Volatile private var lastRectW = 0
+    @Volatile private var lastRectH = 0
+
     /** Create the engine and stack it (hidden) over the shell's root view. */
     fun attach(act: Activity, root: FrameLayout) {
         if (web != null) { hostRoot = root; return }
@@ -114,15 +119,25 @@ object BrowserOverlay {
         // bar stay in sync.
         HostShell.evaluate("window.__kylinOpenInPanel && window.__kylinOpenInPanel(${org.json.JSONObject.quote(full)})")
         main.post { w.bringToFront() }
-        val deadline = System.currentTimeMillis() + 25_000
+        ensurePanelRect()
+        // Bounded wait: complete is ideal, but busy portals sit at
+        // "interactive" forever — on-target + interactive after a grace
+        // period counts as loaded (baidu did exactly this).
+        val start = System.currentTimeMillis()
+        val deadline = start + 25_000
         val host = java.net.URI(full).host ?: ""
         while (System.currentTimeMillis() < deadline) {
             Thread.sleep(400)
             val now = evalJsText("location.href") ?: continue
             val onTarget = host.isNotEmpty() && now.contains(host)
-            val complete = evalJs("document.readyState") == "\"complete\""
-            if (onTarget && complete) {
+            if (!onTarget) continue
+            val ready = evalJsText("document.readyState") ?: ""
+            if (ready == "complete") {
                 Thread.sleep(400) // render settling
+                return state()
+            }
+            if (ready == "interactive" && System.currentTimeMillis() - start > 8_000) {
+                Thread.sleep(600)
                 return state()
             }
         }
@@ -212,12 +227,26 @@ object BrowserOverlay {
 
     // ---------------------------------------------------------- engine ops
 
+    /**
+     * Pages size their layout to the viewport they FIRST see: navigating
+     * before the panel rect arrives loads under a stale rect (zhihu rendered
+     * full-app-wide until dragged). Wait for a real panel rect, bounded — if
+     * none comes (no panel open), proceed anyway.
+     */
+    private fun ensurePanelRect(timeoutMs: Long = 3000) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline && (lastRectW <= 0 || lastRectH <= 0)) {
+            Thread.sleep(150)
+        }
+    }
+
     private fun navigate(raw: String) {
         if (raw.isEmpty()) return
         val url = if (raw.startsWith("http://") || raw.startsWith("https://")) raw
         else if (raw.contains("://")) return
         else "https://$raw"
         val w = web ?: return
+        ensurePanelRect()
         w.visibility = View.VISIBLE
         w.bringToFront()
         if (w.url != url) w.loadUrl(url)
@@ -242,6 +271,8 @@ object BrowserOverlay {
         val width = (p[2] * d).toInt().coerceAtMost(maxW - x)
         val height = (p[3] * d).toInt().coerceAtMost(maxH - y)
         if (width <= 0 || height <= 0) { w.visibility = View.GONE; return }
+        lastRectW = width
+        lastRectH = height
         val lp = w.layoutParams as FrameLayout.LayoutParams
         lp.leftMargin = x
         lp.topMargin = y
@@ -497,27 +528,63 @@ object BrowserOverlay {
       return 'ok-no-go-btn';
     };
     if (document.querySelector('input[class*="address"]')) return go();
-    // no browser tab yet: open one via the add-tab picker, then navigate
+    // The right sidebar may be COLLAPSED (rightbarCol width 0 — then there
+    // is no addTab button at all). Expand it first, retried in the poll.
+    var expandBar = function () {
+      var ex = [...document.querySelectorAll('[aria-label]')].find(function (e) {
+        return (e.getAttribute('aria-label') || '').indexOf('打开右侧边栏') !== -1;
+      });
+      if (ex) ex.click();
+    };
+    expandBar();
+    // no browser tab yet: fire BOTH paths — the add-tab picker click and the
+    // browser.new shortcut (Ctrl+T) — then poll up to 8s for the address
+    // bar (menus animate; one path always lands) and navigate.
     var add = document.querySelector('button[class*="addTab"]');
-    if (!add) return 'no-addtab';
-    add.click();
-    setTimeout(function () {
+    if (add) add.click();
+    var kd = function (down) {
+      document.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', {
+        key: 't', code: 'KeyT', ctrlKey: true, bubbles: true, cancelable: true
+      }));
+    };
+    kd(true); kd(false);
+    var tries = 0;
+    var addClicked = false;
+    var iv = setInterval(function () {
+      tries += 1;
+      // Collapsed bar -> expand (ONLY when fully collapsed; never touch the
+      // layout otherwise — dsh remembers the bar width per session, and
+      // nudging it re-opens wide instead of the user's narrow sidebar).
+      var bar = document.querySelector('[class*="rightbarCol"]');
+      if ((!bar || bar.getBoundingClientRect().width < 50)) expandBar();
+      // open the tab exactly once, as soon as the strip is reachable
+      if (!addClicked) {
+        var a2 = document.querySelector('button[class*="addTab"]');
+        if (a2) { a2.click(); addClicked = true; }
+      }
+      // picker path: click the 浏览器 row whenever it appears (menu or start page)
       var leaf = [...document.querySelectorAll('body *')].find(function (e) {
         return e.children.length === 0 && (e.textContent || '').trim() === '浏览器';
       });
-      if (!leaf) return;
-      var row = leaf;
-      for (var i = 0; i < 6 && row.parentElement; i++) {
-        row = row.parentElement;
-        var r = row.getBoundingClientRect();
-        if (r.height > 30 && r.height < 120 && r.width > 100) break;
+      if (leaf && !document.querySelector('input[class*="address"]')) {
+        var row = leaf;
+        for (var i = 0; i < 6 && row.parentElement; i++) {
+          row = row.parentElement;
+          var r = row.getBoundingClientRect();
+          if (r.height > 30 && r.height < 140 && r.width > 100) break;
+        }
+        row.click();
       }
-      row.click();
-      setTimeout(function () {
+      if (document.querySelector('input[class*="address"]')) {
+        clearInterval(iv);
         go();
         send('onNavigate', (activeTabKey() || 'kp0') + '|' + url);
-      }, 900);
-    }, 900);
+      } else if (tries > 26) {
+        clearInterval(iv);
+        // last resort: drive the engine directly even without a panel tab
+        send('onNavigate', (activeTabKey() || 'kp0') + '|' + url);
+      }
+    }, 300);
     return 'opening-tab';
   };
   return 'installed';

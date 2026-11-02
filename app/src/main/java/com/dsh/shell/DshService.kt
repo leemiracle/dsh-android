@@ -113,6 +113,25 @@ class DshService : Service() {
         }
     }
 
+    /**
+     * The Kylin ROM's background sweep removes the task and SIGKILLs the
+     * process (captured live: signal 9 + onTaskRemoved while other apps fell
+     * in the same batch). stopWithTask=false keeps the service eligible;
+     * this hook schedules a restart so the shell comes back on its own.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val restart = Intent(applicationContext, DshService::class.java)
+            .setAction(ACTION_START)
+        val pi = android.app.PendingIntent.getService(
+            this, 0, restart,
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val am = getSystemService(ALARM_SERVICE) as android.app.AlarmManager
+        am.setExact(android.app.AlarmManager.ELAPSED_REALTIME,
+            android.os.SystemClock.elapsedRealtime() + 2500, pi)
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         shutdownServer()
         runCatching { unregisterReceiver(screenOffReceiver) }
