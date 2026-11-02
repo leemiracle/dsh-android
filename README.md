@@ -152,6 +152,20 @@ sed/awk/apt，398 个二进制），三处消费：
 targetSdk 28 的取舍：FGS/WebView/ProxyController/CDP 全部行为不变（都早于 29）；
 废弃的是 scoped storage 等新约束（kiosk 工具 app 反而受益）。
 
+### apt/pkg 生态（装任意 Linux 工具）
+
+bootstrap 的 apt/dpkg 全链硬编码 Termux 前缀，`ensureRootfsFixups`（boot 幂等）整体
+迁移：APT_CONFIG Dir 全家重定向 + `--root` 解包 + `DPkg::Path` + `$PREFIX` 内 Termux
+路径符号链（deb 内是完整绝对路径，靠 `--keep-directory-symlink` 落位）+ shebang/脚本
+内路径全量改写 + keyring 重链 + sbin dummy。
+
+**TLS 通路**：rootfs 的 gnutls CA 路径不可重定向 → `tools/termux-proxy.py` 在宿主端
+终结 HTTPS（经 clash 真验证），rootfs 的 sources.list 与 pkg mirrors 指向
+`http://127.0.0.1:8391`（`adb reverse tcp:8391`）；apt 的 GPG 签名仍端到端校验包。
+
+实证：`apt-get update` 绿、`apt/pkg install` openssh/git/jq 全通（OpenSSH 10.6p1、
+git 2.56.0 可用）。**开发机依赖**：pkg/apt 装新包需宿主代理在跑（已装工具不受影响）。
+
 ## 使用
 
 首启约 30-60 秒（解 zip）；状态页变标题后 WebView 自动进入。通知栏常驻「停止」
