@@ -365,6 +365,28 @@ else:
     print("already patched", p)
 PYINSPECTOR
 
+echo "== [4g/6] patch dsh-client-connection: auth cookie name keyed by host only"
+# cookieName() = "dsh-auth-" + sha256(authority) and authority includes the
+# PORT — every boot picks a fresh port, so every boot mints a NEW cookie name
+# and the old ~300-byte JWT cookies pile up in the WebView jar for 30 days
+# until the request header overflows (HTTP 431, "web page won't open").
+# Keying by host alone keeps one cookie per host: each boot's Set-Cookie
+# overwrites the previous one. (Two dsh instances on different ports of the
+# same host would collide — this shell runs exactly one.)
+python3 - "$WORK/web" <<'PYCOOKIE'
+import os, sys
+p = os.path.join(sys.argv[1], "node_modules/@deepseek-ai/dsh-client-connection/lib/index.js")
+s = open(p).read()
+old = 'function cookieName(authority) {\n\treturn COOKIE_PREFIX + encodeBase64Url(createHash("sha256").update(authority).digest());\n}'
+new = 'function cookieName(authority) {\n\treturn COOKIE_PREFIX + encodeBase64Url(createHash("sha256").update(authority.split(":")[0]).digest());\n}'
+if new not in s:
+    assert old in s, "cookieName anchor missing"
+    open(p, "w").write(s.replace(old, new, 1))
+    print("patched", p)
+else:
+    print("already patched", p)
+PYCOOKIE
+
 echo "== [5/6] patchelf: rename versioned sonames for AGP packaging"
 # AGP drops jniLibs files whose SONAME is missing or != filename, and rejects
 # names like libz.so.1 outright. Rename each versioned lib to lib*.so, then

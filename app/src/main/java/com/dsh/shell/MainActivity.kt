@@ -57,8 +57,16 @@ class MainActivity : Activity() {
             when (state) {
                 DshService.STATE_RUNNING, DshService.STATE_STARTING -> {
                     status.text = if (state == DshService.STATE_RUNNING) "DeepSeek Harness" else "启动中…"
-                    if (state == DshService.STATE_RUNNING && url != null && !loaded) {
-                        loadUi(url)
+                    if (state == DshService.STATE_RUNNING && url != null) {
+                        // The server restarts on a FRESH port after an
+                        // in-process crash-restart; the WebView would sit on
+                        // the dead origin forever. Reload when the port moved
+                        // (or on first load).
+                        val currentPort = Regex("127\\.0\\.0\\.1:(\\d+)").find(webView.url ?: "")?.groupValues?.get(1)
+                        val freshPort = Regex("127\\.0\\.0\\.1:(\\d+)").find(url)?.groupValues?.get(1)
+                        if (!loaded || (currentPort != null && freshPort != null && currentPort != freshPort)) {
+                            loadUi(url)
+                        }
                     }
                 }
                 DshService.STATE_ERROR -> status.text = "出错了"
@@ -203,6 +211,10 @@ class MainActivity : Activity() {
         // a system-wide proxy wedges the whole shell; everything else — the
         // browser panel's external pages — goes through the host clash tunnel
         // (adb reverse tcp:7890), the device's only TLS-trustworthy egress.
+        // Loopback URLs carry ports (127.0.0.1:33651) — a bare-host bypass
+        // rule silently failed to match them at targetSdk 28, sending the UI
+        // through clash which answered 502 (ERR_HTTP_RESPONSE_CODE_FAILURE).
+        // Multiple rule forms are stacked to be safe.
         if (androidx.webkit.WebViewFeature.isFeatureSupported(
                 androidx.webkit.WebViewFeature.PROXY_OVERRIDE)) {
             runCatching {
@@ -211,10 +223,14 @@ class MainActivity : Activity() {
                         .addProxyRule("http://127.0.0.1:7890")
                         .addBypassRule("127.0.0.1")
                         .addBypassRule("localhost")
+                        .addBypassRule("127.0.0.1:*")
+                        .addBypassRule("<local>")
                         .build(),
                     java.util.concurrent.Executors.newSingleThreadExecutor()
-                ) { /* applied */ }
-            }
+                ) {
+                    android.util.Log.i("DshMain", "WebView proxy override applied")
+                }
+            }.onFailure { android.util.Log.e("DshMain", "proxy override failed", it) }
         }
 
         setContentView(root)
@@ -235,6 +251,23 @@ class MainActivity : Activity() {
         loaded = true
         serverUrl = url
         runOnUiThread {
+            // Purge stale dsh-auth-* cookies: every past boot (with the
+            // unpatched cookieName) minted a differently-hashed name, and the
+            // ~300-byte JWT cookies pile up until the request header overflows
+            // with HTTP 431 ("web page won't open"). The server re-sets the
+            // fresh one on this very navigation.
+            runCatching {
+                val cm = android.webkit.CookieManager.getInstance()
+                val host = Regex("http://([^/]+)/").find(url)?.groupValues?.get(1) ?: "127.0.0.1"
+                val jar = cm.getCookie("http://$host/") ?: ""
+                for (pair in jar.split(";")) {
+                    val name = pair.substringBefore('=').trim()
+                    if (name.startsWith("dsh-auth-")) {
+                        cm.setCookie("http://$host/", "$name=; Path=/; Max-Age=0")
+                    }
+                }
+                cm.flush()
+            }
             webView.visibility = View.VISIBLE
             webView.loadUrl(url)
         }
