@@ -48,11 +48,17 @@ class MainActivity : Activity() {
         @Volatile var userStopped = false
     }
 
+    /** Init-watchdog bookkeeping (see the watchdog in onStart). */
+    private var lastStateAt = 0L
+    private var lastState: String? = null
+
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val state = intent?.getStringExtra(DshService.EXTRA_STATE) ?: return
             val detail = intent.getStringExtra(DshService.EXTRA_DETAIL) ?: ""
             val url = intent.getStringExtra(DshService.EXTRA_URL)
+            lastStateAt = System.currentTimeMillis()
+            lastState = state
             subStatus.text = detail
             when (state) {
                 DshService.STATE_RUNNING, DshService.STATE_STARTING -> {
@@ -245,7 +251,30 @@ class MainActivity : Activity() {
         if (!userStopped) {
             startForegroundService(Intent(this, DshService::class.java).setAction(DshService.ACTION_START))
         }
+        // Init watchdog: a service start can get silently dropped (one was
+        // torn down "while still waiting for start foreground" and the shell
+        // sat on 初始化 forever). If no progress for 45s, re-request.
+        initWatchdog.run()
     }
+
+    private val initWatchdog = object : Runnable {
+        override fun run() {
+            val now = System.currentTimeMillis()
+            val idle = now - (if (lastStateAt == 0L) now else lastStateAt)
+            val state = lastState
+            val stuck = state == DshService.STATE_INSTALLING || state == DshService.STATE_STARTING
+            if (state != null && stuck && idle > 45_000 && !userStopped) {
+                android.util.Log.w("DshMain", "init watchdog: stuck in $state for ${idle}ms, restarting service")
+                runCatching {
+                    startForegroundService(Intent(this@MainActivity, DshService::class.java).setAction(DshService.ACTION_START))
+                }
+                lastStateAt = now
+            }
+            mainHandler.postDelayed(this, 15_000)
+        }
+    }
+
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     private fun loadUi(url: String) {
         loaded = true

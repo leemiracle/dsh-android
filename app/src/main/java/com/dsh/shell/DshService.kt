@@ -91,13 +91,18 @@ class DshService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // Enter the foreground IMMEDIATELY — startForegroundService allows
+        // 5s; a busy main thread once delayed the call past that and the
+        // system tore the service down ("waiting for start foreground"),
+        // after which the shell sat on "initializing" forever.
+        runCatching { startForegroundInternal() }
         registerReceiver(
             screenOffReceiver,
             IntentFilter(Intent.ACTION_SCREEN_OFF)
         )
         // Loopback bridge for the kylin-tools `linux` tool: Node can't bind
-        // Android services, so this exposes the kylin-agent sandbox APK
-        // (com.kylin.agent.sandbox, targetSdk 28) over 127.0.0.1:33990.
+        // Android services, so this exposes the in-app rootfs over
+        // 127.0.0.1:33990.
         LinuxSandbox.start(this)
     }
 
