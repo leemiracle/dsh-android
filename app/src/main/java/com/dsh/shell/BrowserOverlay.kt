@@ -230,11 +230,23 @@ object BrowserOverlay {
         val p = rect.split(",").mapNotNull { it.toIntOrNull() }
         if (p.size != 4 || p[2] <= 0 || p[3] <= 0) { w.visibility = View.GONE; return }
         val d = w.resources.displayMetrics.density
+        // Clamp to the physical screen: fullscreen-panel layouts can report
+        // content heights far beyond the viewport (1603px vs an 864px
+        // screen), leaving the engine's lower half off-screen — "page shows
+        // incomplete content".
+        val dm = w.resources.displayMetrics
+        val maxW = dm.widthPixels
+        val maxH = dm.heightPixels
+        val x = (p[0] * d).toInt().coerceIn(0, maxW - 1)
+        val y = (p[1] * d).toInt().coerceIn(0, maxH - 1)
+        val width = (p[2] * d).toInt().coerceAtMost(maxW - x)
+        val height = (p[3] * d).toInt().coerceAtMost(maxH - y)
+        if (width <= 0 || height <= 0) { w.visibility = View.GONE; return }
         val lp = w.layoutParams as FrameLayout.LayoutParams
-        lp.leftMargin = (p[0] * d).toInt()
-        lp.topMargin = (p[1] * d).toInt()
-        lp.width = (p[2] * d).toInt()
-        lp.height = (p[3] * d).toInt()
+        lp.leftMargin = x
+        lp.topMargin = y
+        lp.width = width
+        lp.height = height
         w.layoutParams = lp
         // Visibility keyed purely on having a rect: a freshly-navigated
         // engine still has url == null until the first response, and a GONE
