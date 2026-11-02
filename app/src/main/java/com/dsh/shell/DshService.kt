@@ -183,7 +183,11 @@ class DshService : Service() {
                 // vLLM (127.0.0.1:11433) and LAN stay direct via NO_PROXY.
                 put("HTTP_PROXY", "http://127.0.0.1:8333")
                 put("HTTPS_PROXY", "http://127.0.0.1:8333")
-                put("NO_PROXY", "127.0.0.1,localhost,10.0.0.0/8,192.168.0.0/16")
+                // Exact hostnames, not CIDRs: several HTTP stacks ignore
+                // 10.0.0.0/8-style NO_PROXY entries, which sent the vLLM
+                // traffic through clash (502). Loopback and the LAN vLLM
+                // host must stay direct.
+                put("NO_PROXY", "127.0.0.1,localhost,10.44.11.11")
                 put("NODE_USE_ENV_PROXY", "1")
                 // The kylin-tools bundle registers a DuckDuckGo provider on
                 // the web service; select it for the stock web_search tool

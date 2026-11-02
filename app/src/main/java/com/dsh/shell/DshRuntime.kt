@@ -57,6 +57,12 @@ object DshRuntime {
                 // Top-level YAML list: appending further "- id:" blocks at the
                 // end composes with whatever the UI already saved.
                 patch.appendText(PRESEED_BLOCK)
+            } else if (text.contains("http://127.0.0.1:11433")) {
+                // Migrate installs seeded before direct-LAN access was
+                // verified: the loopback hop needed a host-side forwarder
+                // (ka_fwd + adb reverse) that half-died routinely; the
+                // device reaches the vLLM host directly on this network.
+                patch.writeText(text.replace("http://127.0.0.1:11433", "http://10.44.11.11:11433"))
             }
         } else {
             profileDir.mkdirs()
@@ -161,7 +167,8 @@ object DshRuntime {
     private const val OPT_OUT_MARKER = "# dsh-android-preseed-off"
     private const val PRESEED_BLOCK =
         """# dsh-android preseed: Kylin local vLLM (same source as kylin-agent LocalHarness).
-# Reachable on-device via: bash kylin-agent/bin/kylin100.sh tunnel
+# Direct LAN access (verified: device reaches 10.44.11.11 in ~200ms) — no
+# host-side forwarder/tunnel needed on this network.
 # Remove the two entries below (or add "# dsh-android-preseed-off") to disable.
 - id: llm-pi-ai
   config:
@@ -169,7 +176,7 @@ object DshRuntime {
       kylin-vllm:
         apiKeyEnv: KYLIN_VLLM_API_KEY
         api: openai-completions
-        baseURL: http://127.0.0.1:11433/v1
+        baseURL: http://10.44.11.11:11433/v1
         models:
           - id: qwen3.5-35b
 - id: agent-default-model
