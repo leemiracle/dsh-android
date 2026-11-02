@@ -151,13 +151,19 @@ class MainActivity : Activity() {
                 override fun shouldOverrideUrlLoading(
                     view: WebView?, request: WebResourceRequest?
                 ): Boolean {
-                    // Let every navigation proceed in-shell. External top-level
-                    // navigations happen by design now: the sidebar browser
-                    // panel's pages frame-bust out of their iframe, and
-                    // redirect chains (kdocs.cn -> www.kdocs.cn) arrive here
-                    // too — cancelling them (the old kiosk policy) is what
-                    // made kdocs "never load". Back returns to the shell UI.
-                    return false
+                    // Links tapped in chat (and frame-bust escapes) must NOT
+                    // replace the shell UI at the top level — route them into
+                    // the sidebar browser panel instead, where the engine and
+                    // the user's eyes already are. Loopback stays in-place.
+                    val host = request?.url?.host ?: return false
+                    if (host == "127.0.0.1" || host == "localhost") return false
+                    val url = request.url.toString()
+                    android.util.Log.d("DshMain", "external nav -> panel: $url")
+                    HostShell.evaluate(
+                        "window.__kylinOpenInPanel && window.__kylinOpenInPanel(" +
+                            org.json.JSONObject.quote(url) + ")"
+                    )
+                    return true
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
