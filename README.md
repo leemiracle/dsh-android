@@ -188,6 +188,14 @@ git 2.56.0 可用）。**开发机依赖**：pkg/apt 装新包需宿主代理在
 桥级端到端实测：open baidu（面板 621×740 可见+tab 自动开）→ dom 找到输入框 → type
 "browser-use" → click → 返回 11 条搜索结果。
 
+**视觉能力（web_screenshot）**：引擎截图 → attachments 入库 → dsh 工具框架的 image
+block 直进模型上下文（qwen3.5-35b 多模态）。真机 E2E：agent open 知乎 → 截图 →
+准确答出「关注/推荐/热榜/专栏/圈子」+ 注意到顶栏「99+ 封私信」——视觉 ground
+truth 实证（2026-11-02）。
+
+**方向钉版**：computer-use 范围=本 app 的 webview/终端/shell 三面；无障碍禁用（安全
+隐私）；adb 通道可用（不申请额外权限）；不操控系统浏览器/其他 app。
+
 ## 使用
 
 首启约 30-60 秒（解 zip）；状态页变标题后 WebView 自动进入。通知栏常驻「停止」
