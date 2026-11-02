@@ -163,6 +163,102 @@ const linuxTool = defineTool({
 	},
 });
 
+// -------------------------------------------------- web_* tools: drive the sidebar browser panel
+// browser-use semantics on the shell's OWN engine (BrowserOverlay): the
+// page the user sees in the panel is the page these tools control.
+// Human-in-the-loop: when a login/captcha blocks progress, call web_manual
+// and TELL the user to finish it in the panel; the tool returns once the
+// page advances.
+
+async function webCall(op, body, signal) {
+	const res = await fetch(SANDBOX_BASE + "/web/" + op, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body ?? {}),
+		signal,
+	});
+	const data = await res.json().catch(() => ({ error: "bad bridge response" }));
+	if (data.error) return `web bridge: ${data.error}`;
+	return String(data.result ?? "(空)");
+}
+
+const webTools = [
+	defineTool({
+		name: "web_open",
+		description:
+			"Open a URL in the sidebar browser panel (the panel is visible to the user — they watch the page load). " +
+			"Waits for load completion, then returns url/title/ready state. http/https only.",
+		parameters: { url: { type: "string", description: "Full URL (https://... or bare host)." } },
+		output: { schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } }, render: (_a, v) => [{ type: "text", text: v.result }] },
+		async execute(args, exec) {
+			return { result: await webCall("open", { url: String(args.url ?? "").trim() }, exec.signal) };
+		},
+	}),
+	defineTool({
+		name: "web_state",
+		description:
+			"Current url/title/readyState/viewport of the sidebar browser page. Cheap — call after any action to verify.",
+		parameters: {},
+		output: { schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } }, render: (_a, v) => [{ type: "text", text: v.result }] },
+		async execute(_args, exec) {
+			return { result: await webCall("state", {}, exec.signal) };
+		},
+	}),
+	defineTool({
+		name: "web_dom",
+		description:
+			"List up to 20 nodes matching a CSS selector (tag/id/text/value) — the eyes for deciding what to click or type into. " +
+			"Use web_state first if nothing matches (page may not be loaded).",
+		parameters: { selector: { type: "string", description: "CSS selector, e.g. '#kw', 'input[type=submit]', 'a'." } },
+		output: { schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } }, render: (_a, v) => [{ type: "text", text: v.result }] },
+		async execute(args, exec) {
+			return { result: await webCall("dom", { selector: String(args.selector ?? "") }, exec.signal) };
+		},
+	}),
+	defineTool({
+		name: "web_click",
+		description: "Click the first element matching a CSS selector (scrolls into view first). Verify with web_state/web_dom.",
+		parameters: { selector: { type: "string", description: "CSS selector of the element to click." } },
+		output: { schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } }, render: (_a, v) => [{ type: "text", text: v.result }] },
+		async execute(args, exec) {
+			return { result: await webCall("click", { selector: String(args.selector ?? "") }, exec.signal) };
+		},
+	}),
+	defineTool({
+		name: "web_type",
+		description:
+			"Type text into an input matching a CSS selector (native setter + input/change events — React/Vue controlled inputs accept it).",
+		parameters: {
+			selector: { type: "string", description: "CSS selector of the input/textarea." },
+			text: { type: "string", description: "Text to type." },
+		},
+		output: { schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } }, render: (_a, v) => [{ type: "text", text: v.result }] },
+		async execute(args, exec) {
+			return { result: await webCall("type", { selector: String(args.selector ?? ""), text: String(args.text ?? "") }, exec.signal) };
+		},
+	}),
+	defineTool({
+		name: "web_manual",
+		description:
+			"Hand the sidebar browser page to the human and WAIT (up to timeoutS) until they act — use when a login/captcha/verification " +
+			"blocks progress. IMPORTANT: before/while calling this, TELL the user in your reply exactly what to do in the panel " +
+			"(e.g. 「请在右侧面板完成登录，我会等你」). Returns as soon as the page URL advances, with the new state.",
+		parameters: {
+			reason: { type: "string", description: "What the user should do, e.g. 'complete login'." },
+			timeoutS: { type: "number", description: "Max seconds to wait (10-900, default 300)." },
+		},
+		output: { schema: { type: "object", additionalProperties: false, properties: { result: { type: "string", required: true } } }, render: (_a, v) => [{ type: "text", text: v.result }] },
+		async execute(args, exec) {
+			return {
+				result: await webCall("manual", {
+					reason: String(args.reason ?? "manual operation"),
+					timeoutS: Number.isFinite(args.timeoutS) ? args.timeoutS : 300,
+				}, exec.signal),
+			};
+		},
+	}),
+];
+
 // -------------------------------------------------- DuckDuckGo search provider
 
 function decodeEntities(text) {
@@ -296,6 +392,13 @@ function apply(ctx) {
 			tools.register(linuxTool);
 		} catch {
 			/* already registered by another composition */
+		}
+		for (const t of webTools) {
+			try {
+				tools.register(t);
+			} catch {
+				/* already registered by another composition */
+			}
 		}
 	}
 }

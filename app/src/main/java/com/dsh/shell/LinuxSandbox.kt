@@ -105,6 +105,23 @@ object LinuxSandbox {
                         if (src.isBlank()) 400 to JSONObject().put("error", "src required")
                         else 200 to JSONObject().put("result", bootstrap(ctx, src))
                     }
+                    // ---- agent driving surface for the browser panel engine
+                    method == "POST" && path.startsWith("/web/") -> {
+                        val o = runCatching { JSONObject(body) }.getOrNull() ?: JSONObject()
+                        val res = when (path.substringAfter("/web/")) {
+                            "open" -> BrowserOverlay.open(o.optString("url"))
+                            "state" -> BrowserOverlay.state()
+                            "dom" -> BrowserOverlay.dom(o.optString("selector"))
+                            "click" -> BrowserOverlay.click(o.optString("selector"))
+                            "type" -> BrowserOverlay.type(o.optString("selector"), o.optString("text"))
+                            "manual" -> BrowserOverlay.waitManual(
+                                o.optString("reason"),
+                                o.optLong("timeoutS", 300L).coerceIn(10, 900)
+                            )
+                            else -> "unknown web op"
+                        }
+                        200 to JSONObject().put("result", res)
+                    }
                     else -> 404 to JSONObject().put("error", "not found")
                 }
             } catch (e: Exception) {

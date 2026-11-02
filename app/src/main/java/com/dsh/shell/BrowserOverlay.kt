@@ -74,6 +74,142 @@ object BrowserOverlay {
 
     fun activeGoBack() = main.post { web?.takeIf { it.canGoBack() }?.goBack() }
 
+    // ------------------------------------------- agent driving surface
+    // Synchronous JS evaluation for the web_* tools (loopback bridge). Same
+    // thread model as kylin-agent's AgentWeb: caller thread -> post to main
+    // -> evaluateJavascript -> latch (busy pages just time out, never hang).
+
+    private fun evalJs(code: String, timeoutS: Long = 12): String? {
+        val w = web ?: return null
+        val box = arrayOfNulls<String>(1)
+        val latch = java.util.concurrent.CountDownLatch(1)
+        main.post {
+            w.evaluateJavascript(code) { r -> box[0] = r; latch.countDown() }
+        }
+        latch.await(timeoutS, java.util.concurrent.TimeUnit.SECONDS)
+        return box[0]
+    }
+
+    /** JSON-decode evaluateJavascript's double-encoded string results. */
+    private fun evalJsText(code: String, timeoutS: Long = 12): String? {
+        val r = evalJs(code, timeoutS) ?: return null
+        if (r == "null" || r == "undefined") return null
+        if (r.startsWith("\"")) {
+            return runCatching {
+                org.json.JSONObject("{\"v\":$r}").optString("v")
+            }.getOrDefault(r)
+        }
+        return r
+    }
+
+    /** Open a URL and poll until the ENGINE is actually on that host (the
+     *  previous page's readyState is also "complete" — waiting on
+     *  readyState alone returns about:blank instantly) and loaded. */
+    fun open(url: String): String {
+        val w = web ?: return "(engine not ready)"
+        if (!url.startsWith("http://") && !url.startsWith("https://")) return "仅支持 http/https URL"
+        val full = if (url.startsWith("http")) url else "https://$url"
+        // Make the panel visible (open a browser tab if none) and route the
+        // navigation through the panel's own machinery so tab title/address
+        // bar stay in sync.
+        HostShell.evaluate("window.__kylinOpenInPanel && window.__kylinOpenInPanel(${org.json.JSONObject.quote(full)})")
+        main.post { w.bringToFront() }
+        val deadline = System.currentTimeMillis() + 25_000
+        val host = java.net.URI(full).host ?: ""
+        while (System.currentTimeMillis() < deadline) {
+            Thread.sleep(400)
+            val now = evalJsText("location.href") ?: continue
+            val onTarget = host.isNotEmpty() && now.contains(host)
+            val complete = evalJs("document.readyState") == "\"complete\""
+            if (onTarget && complete) {
+                Thread.sleep(400) // render settling
+                return state()
+            }
+        }
+        return "加载未完成（25s）——当前：${state()}"
+    }
+
+    fun state(): String {
+        val r = evalJsText(
+            "JSON.stringify({url:location.href, title:document.title, ready:document.readyState," +
+                " scrollY:Math.round(scrollY), w:innerWidth, h:innerHeight})"
+        ) ?: return "(JS 超时)"
+        val o = runCatching { org.json.JSONObject(r) }.getOrNull() ?: return "解析失败"
+        return "url=${o.optString("url")} 标题=${o.optString("title")} 状态=${o.optString("ready")} " +
+            "视口=${o.optInt("w")}x${o.optInt("h")}"
+    }
+
+    fun dom(selector: String): String {
+        if (selector.isBlank()) return "选择器为空"
+        val sel = org.json.JSONObject.quote(selector)
+        val r = evalJsText(
+            "JSON.stringify([...document.querySelectorAll($sel)].slice(0,20).map(e=>" +
+                "({tag:e.tagName,text:(e.innerText||'').replace(/\\s+/g,' ').slice(0,100),id:e.id||''," +
+                "value:(e.value||'').slice(0,40)})))"
+        ) ?: return "(JS 超时)"
+        val a = runCatching { org.json.JSONArray(r) }.getOrNull() ?: return "无命中或解析失败（选择器: $selector）"
+        if (a.length() == 0) return "选择器「$selector」无命中（页面可能未加载完或选择器错——可 web_state 核对 url）"
+        val sb = StringBuilder("命中 ${a.length()} 个（选择器 $selector）：\n")
+        for (i in 0 until a.length()) {
+            val o = a.optJSONObject(i) ?: continue
+            sb.append("· <").append(o.optString("tag").lowercase()).append('>')
+                .append(if (o.optString("id").isNotBlank()) "#${o.optString("id")}" else "")
+                .append(' ').append(o.optString("text").take(80))
+                .append(if (o.optString("value").isNotBlank()) " [值:${o.optString("value")}]" else "")
+                .appendLine()
+        }
+        return sb.toString().take(2800)
+    }
+
+    fun click(selector: String): String {
+        if (selector.isBlank()) return "选择器为空"
+        val sel = org.json.JSONObject.quote(selector)
+        val r = evalJs(
+            "(e=>{const t=document.querySelector($sel); if(!t) return 'MISS';" +
+                "t.scrollIntoView({block:'center'}); t.click(); return 'OK'})()"
+        ) ?: return "(JS 超时)"
+        return when (r) {
+            "\"OK\"" -> "已点击「$selector」（可 web_state/web_dom 核实效果）"
+            "\"MISS\"" -> "未命中「$selector」（先 web_dom 确认选择器）"
+            else -> "点击回执异常: ${r?.take(40)}"
+        }
+    }
+
+    fun type(selector: String, text: String): String {
+        if (selector.isBlank()) return "选择器为空"
+        val sel = org.json.JSONObject.quote(selector)
+        val txt = org.json.JSONObject.quote(text)
+        val js = "(()=>{const e=document.querySelector($sel); if(!e) return 'MISS';" +
+            "const set=Object.getOwnPropertyDescriptor(e.__proto__,'value')?.set; " +
+            "if(set) set.call(e,$txt); else e.value=$txt;" +
+            "e.dispatchEvent(new Event('input',{bubbles:true})); " +
+            "e.dispatchEvent(new Event('change',{bubbles:true})); return 'OK'})()"
+        return when (evalJs(js) ?: return "(JS 超时)") {
+            "\"OK\"" -> "已输入「$selector」（${text.length} 字）"
+            "\"MISS\"" -> "未命中「$selector」"
+            else -> "输入回执异常"
+        }
+    }
+
+    /**
+     * Human-in-the-loop gate (browser-use semantics): wait until the page
+     * changes away from the given state — typically the user finishing a
+     * manual login in the visible panel. Polls engine-side for up to
+     * [timeoutS] so the agent spends ONE tool call, not a polling loop.
+     */
+    fun waitManual(reason: String, timeoutS: Long): String {
+        val startUrl = evalJsText("location.href") ?: return "(JS 超时)"
+        val deadline = System.currentTimeMillis() + timeoutS * 1000
+        while (System.currentTimeMillis() < deadline) {
+            Thread.sleep(1500)
+            val now = evalJsText("location.href") ?: continue
+            if (now != startUrl) {
+                return "人工操作完成（页面已从 $startUrl 前进到 $now）——当前：${state()}"
+            }
+        }
+        return "等待超时（${timeoutS}s 内页面未变化）——当前：${state()}。如仍需人工操作请提示用户。"
+    }
+
     // ---------------------------------------------------------- engine ops
 
     private fun navigate(raw: String) {
@@ -331,6 +467,46 @@ object BrowserOverlay {
       var act = document.querySelector('[class*="stripTabs"] [class*="tabActive"] [class*="tabTitle"]');
       if (act) act.textContent = s.title;
     }
+  };
+
+  // -- agent entry: make sure a browser tab exists, then navigate it via the
+  //    panel's own address bar (keeps tab title/history in sync).
+  window.__kylinOpenInPanel = function (url) {
+    var go = function () {
+      var i = document.querySelector('input[class*="address"]');
+      if (!i) return 'no-address';
+      i.focus();
+      var set = Object.getOwnPropertyDescriptor(i.__proto__, 'value')?.set;
+      if (set) set.call(i, url); else i.value = url;
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      var g = document.querySelector('[class*="addressGo"]');
+      if (g) { g.click(); return 'ok'; }
+      i.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      return 'ok-no-go-btn';
+    };
+    if (document.querySelector('input[class*="address"]')) return go();
+    // no browser tab yet: open one via the add-tab picker, then navigate
+    var add = document.querySelector('button[class*="addTab"]');
+    if (!add) return 'no-addtab';
+    add.click();
+    setTimeout(function () {
+      var leaf = [...document.querySelectorAll('body *')].find(function (e) {
+        return e.children.length === 0 && (e.textContent || '').trim() === '浏览器';
+      });
+      if (!leaf) return;
+      var row = leaf;
+      for (var i = 0; i < 6 && row.parentElement; i++) {
+        row = row.parentElement;
+        var r = row.getBoundingClientRect();
+        if (r.height > 30 && r.height < 120 && r.width > 100) break;
+      }
+      row.click();
+      setTimeout(function () {
+        go();
+        send('onNavigate', (activeTabKey() || 'kp0') + '|' + url);
+      }, 900);
+    }, 900);
+    return 'opening-tab';
   };
   return 'installed';
 })();
