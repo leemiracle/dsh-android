@@ -175,6 +175,19 @@ bootstrap 的 apt/dpkg 全链硬编码 Termux 前缀，`ensureRootfsFixups`（bo
 实证：`apt-get update` 绿、`apt/pkg install` openssh/git/jq 全通（OpenSSH 10.6p1、
 git 2.56.0 可用）。**开发机依赖**：pkg/apt 装新包需宿主代理在跑（已装工具不受影响）。
 
+### agent 操控侧边栏浏览器（browser-use 语义）
+
+会话里直接下指令，agent 用 web_* 工具驱动**面板里可见的同一个页面**（所见即所控）：
+
+- `web_open`（无 tab 自动开浏览器 tab，经面板地址栏导航保持标题/历史同步）/ `web_state` /
+  `web_dom`（CSS 选择器感知）/ `web_click` / `web_type`（React 兼容原生 setter）
+- **`web_manual`**：登录/验证码卡住时的 human-in-the-loop 门——agent 发话请你到面板完成
+  操作，**引擎侧单次调用内轮询**直到页面 URL 前进（agent 不烧轮次）
+- 执行面：BrowserOverlay 同步 evaluateJavascript（AgentWeb 线程模型）+ loopback 桥 `/web/*`
+
+桥级端到端实测：open baidu（面板 621×740 可见+tab 自动开）→ dom 找到输入框 → type
+"browser-use" → click → 返回 11 条搜索结果。
+
 ## 使用
 
 首启约 30-60 秒（解 zip）；状态页变标题后 WebView 自动进入。通知栏常驻「停止」
