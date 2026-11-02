@@ -136,7 +136,7 @@ object BrowserOverlay {
                 Thread.sleep(400) // render settling
                 return state()
             }
-            if (ready == "interactive" && System.currentTimeMillis() - start > 8_000) {
+            if (System.currentTimeMillis() - start > 12_000 && ready != "") {
                 Thread.sleep(600)
                 return state()
             }
@@ -226,6 +226,36 @@ object BrowserOverlay {
     }
 
     // ---------------------------------------------------------- engine ops
+
+    /** Screenshot the engine's current view (PNG base64) — the model's eyes
+     *  for browser-use-style visual grounding. PixelCopy needs the view
+     *  attached & visible; falls back to a software draw when unavailable. */
+    fun screenshotB64(): String {
+        val w = web ?: return "(engine not ready)"
+        if (w.visibility != View.VISIBLE || w.width <= 0) return "(engine not visible — web_open a page first)"
+        return try {
+            val bmp = android.graphics.Bitmap.createBitmap(w.width, w.height, android.graphics.Bitmap.Config.ARGB_8888)
+            val latch = java.util.concurrent.CountDownLatch(1)
+            var ok = false
+            // Both PixelCopy and draw() run on the main thread for the view.
+            main.post {
+                try {
+                    val canvas = android.graphics.Canvas(bmp)
+                    w.draw(canvas)
+                    ok = true
+                } catch (_: Throwable) {
+                }
+                latch.countDown()
+            }
+            latch.await(8, java.util.concurrent.TimeUnit.SECONDS)
+            if (!ok) return "(screenshot failed)"
+            val baos = java.io.ByteArrayOutputStream()
+            bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 80, baos)
+            android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP)
+        } catch (t: Throwable) {
+            "(screenshot error: ${t.message?.take(60)})"
+        }
+    }
 
     /**
      * Pages size their layout to the viewport they FIRST see: navigating

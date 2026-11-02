@@ -45,7 +45,12 @@ object LinuxSandbox {
         val t = Thread({
             runCatching {
                 android.util.Log.i("KylinOv", "linux bridge starting on $PORT")
-                val server = ServerSocket(PORT, 8, InetAddress.getByName("127.0.0.1"))
+                // SO_REUSEADDR before bind: the onTaskRemoved self-restart
+                // races the dying process's socket and a plain
+                // ServerSocket(port) bind fails silently (bridge-dead boot).
+                val server = ServerSocket()
+                server.reuseAddress = true
+                server.bind(java.net.InetSocketAddress(InetAddress.getByName("127.0.0.1"), PORT), 8)
                 android.util.Log.i("KylinOv", "linux bridge listening")
                 while (true) {
                     val s = server.accept()
@@ -114,6 +119,7 @@ object LinuxSandbox {
                             "dom" -> BrowserOverlay.dom(o.optString("selector"))
                             "click" -> BrowserOverlay.click(o.optString("selector"))
                             "type" -> BrowserOverlay.type(o.optString("selector"), o.optString("text"))
+                            "screenshot" -> BrowserOverlay.screenshotB64()
                             "manual" -> BrowserOverlay.waitManual(
                                 o.optString("reason"),
                                 o.optLong("timeoutS", 300L).coerceIn(10, 900)
@@ -368,7 +374,10 @@ object LinuxSandbox {
     fun env(ctx: Context): Map<String, String> {
         val prefix = root(ctx)
         val m = LinkedHashMap<String, String>()
-        m["PATH"] = File(prefix, "bin").absolutePath
+        // System bins last: screencap/input/dumpsys stay reachable for the
+        // computer-use surface (agent screens/taps via the linux tool).
+        m["PATH"] = File(prefix, "bin").absolutePath + ":" +
+            File(prefix, "sbin").absolutePath + ":/system/bin:/vendor/bin"
         m["LD_LIBRARY_PATH"] = File(prefix, "lib").absolutePath
         m["HOME"] = File(prefix, "home").absolutePath
         m["PREFIX"] = prefix.absolutePath

@@ -345,6 +345,27 @@ const webTools = [
 		},
 	}),
 	defineTool({
+		name: "web_screenshot",
+		description:
+			"Screenshot the sidebar browser page and LOOK at it (returns an image the model sees). " +
+			"Use for visual grounding: finding unlabeled buttons/canvas content/verifying layout that web_dom can't express. " +
+			"Coordinates in the screenshot map to CSS pixels of the page viewport (innerWidth x innerHeight).",
+		parameters: {},
+		output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => {
+			const blocks = [{ type: "text", text: v.note ?? "screenshot" }];
+			for (const r of v.__imageRefs ?? []) blocks.push({ type: "image", attachment: r });
+			return blocks;
+		} },
+		async execute(_args, exec) {
+			const b64 = await webCall("screenshot", {}, exec.signal);
+			if (b64.startsWith("(")) return { note: b64 };
+			const attachments = ctxRef?.get?.("attachments");
+			if (!attachments) return { note: "(attachments service unavailable — cannot deliver image)" };
+			const refs = await attachments.admitEncodedImages([{ data: b64, name: "web_screenshot.png" }]);
+			return { __imageRefs: refs, note: "已截图（见附件图像）" };
+		},
+	}),
+	defineTool({
 		name: "web_manual",
 		description:
 			"Hand the sidebar browser page to the human and WAIT (up to timeoutS) until they act — use when a login/captcha/verification " +
