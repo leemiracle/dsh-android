@@ -393,6 +393,11 @@ object LinuxSandbox {
         // Device-side adb (android-tools from the Termux repo) talks to the
         // HOST adb server over the reverse tunnel — the kylin-agent semantic.
         m["ADB_SERVER_SOCKET"] = "tcp:127.0.0.1:5037"
+        // Rootfs egress via the host clash tunnel (same as the node env):
+        // direct connections get gateway-MITMed with a 2009 VeriSign cert.
+        m["HTTP_PROXY"] = "http://127.0.0.1:8333"
+        m["HTTPS_PROXY"] = "http://127.0.0.1:8333"
+        m["NO_PROXY"] = "127.0.0.1,localhost,10.44.11.11"
         return m
     }
 
