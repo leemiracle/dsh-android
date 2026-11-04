@@ -70,6 +70,7 @@ object DshRuntime {
         }
         selectTerminalShell(ctx, patch)
         registerKylinToolsBundle(ctx)
+        mirrorBundledSkills(ctx)
     }
 
     /**
@@ -162,6 +163,32 @@ object DshRuntime {
                 "  }\n" +
                 "}\n"
         )
+    }
+
+    /**
+     * Mirror the bundled skills into $DSH_HOME/skills (the USER-dsh root).
+     * Only preset-cordis carries customSkillDirs pointing at the preset
+     * package's skills/; the default "标准模式" (preset-standard) scans
+     * user roots ONLY — bundled skills were invisible to every standard
+     * session until copied here. Idempotent per-layout stamp.
+     */
+    private fun mirrorBundledSkills(ctx: Context) {
+        runCatching {
+            val src = File(webDir(ctx), "node_modules/@deepseek-ai/dsh-agent-preset/skills")
+            if (!src.isDirectory) return
+            val dst = File(dshHome(ctx), "skills")
+            dst.mkdirs()
+            val stamp = File(dst, ".from-runtime")
+            val layoutStamp = "layout" + LAYOUT_VERSION
+            if (stamp.exists() && stamp.readText() == layoutStamp) return
+            for (skill in src.listFiles()?.filter { it.isDirectory } ?: return) {
+                if (skill.name.startsWith(".")) continue
+                val target = File(dst, skill.name)
+                target.deleteRecursively()
+                skill.copyRecursively(target)
+            }
+            stamp.writeText(layoutStamp)
+        }
     }
 
     private const val OPT_OUT_MARKER = "# dsh-android-preseed-off"
