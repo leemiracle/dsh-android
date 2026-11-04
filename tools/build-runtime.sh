@@ -15,7 +15,7 @@ set -euo pipefail
 
 DSH_NPM_VERSION="0.2.1-rc.2"       # @deepseek-ai/dsh (npm dist)
 NODE_PKG="nodejs-lts_24.22.1"      # termux nodejs-lts (aarch64)
-LAYOUT="17"
+LAYOUT="18"
 WORK="${1:-/tmp/dsh-build}"
 UPSTREAM="/usr-data/data2/repos/deepseek-ai/deepseek-harness"
 NDK_CLANG="${NDK_CLANG:-/home/lwz/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang}"
@@ -387,17 +387,28 @@ else:
     print("already patched", p)
 PYCOOKIE
 
-echo "== [4h/6] mount agent-reach skill into the preset skills dir"
-# agent-reach (github.com/Panniantong/agent-reach) ships a dsh-shaped skill
-# (SKILL.md + references). The preset's customSkillDirs already points at
-# dsh-agent-preset/skills — dropping the folder there makes the skill
-# discoverable to the session's skill tool; execution goes through the
-# rootfs python (agent-reach CLI) via the bash/linux tools.
+echo "== [4h/6] mount bundled skills into the preset skills dir"
+# The preset's customSkillDirs already points at dsh-agent-preset/skills —
+# dropping skill folders there makes them discoverable by the session's
+# skill tool; execution flows through the rootfs (python CLIs, curl) via
+# the bash/linux tools.
+SKILLDEST="$WORK/web/node_modules/@deepseek-ai/dsh-agent-preset/skills"
+
+# Our own authored skills (skillnet store / skill-distill)
+for d in "$(dirname "$0")/skills"/*; do
+  [ -d "$d" ] || continue
+  name="$(basename "$d")"
+  mkdir -p "$SKILLDEST/$name"
+  cp -a "$d/." "$SKILLDEST/$name/"
+  echo "  skill mounted: $name"
+done
+
+# agent-reach (github.com/Panniantong/Agent-Reach) ships a dsh-shaped skill
 AR="/usr-data/data2/repos/ai-trending/Agent-Reach"
 if [ -d "$AR/agent_reach/skill" ]; then
-  mkdir -p "$WORK/web/node_modules/@deepseek-ai/dsh-agent-preset/skills/agent-reach"
-  cp -a "$AR/agent_reach/skill/." "$WORK/web/node_modules/@deepseek-ai/dsh-agent-preset/skills/agent-reach/"
-  echo "  agent-reach skill mounted"
+  mkdir -p "$SKILLDEST/agent-reach"
+  cp -a "$AR/agent_reach/skill/." "$SKILLDEST/agent-reach/"
+  echo "  skill mounted: agent-reach"
 else
   echo "  (agent-reach clone not found at $AR — skipping)"
 fi
