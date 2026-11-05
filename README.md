@@ -5,6 +5,10 @@
 <h1 align="center">dsh-android</h1>
 
 <p align="center">
+  <img src="docs/assets/hero.png" alt="dsh-android：对话与多面板界面" width="100%">
+</p>
+
+<p align="center">
   DeepSeek Harness 的 Android 本体。免 Root、免 Termux，一个 APK 装进完整的 Agent 运行环境——对话、终端、浏览器三面一体。
 </p>
 
@@ -37,6 +41,10 @@
 <h3 align="center">Agent 操控浏览器（browser-use 语义）</h3>
 
 <p align="center">对话里下指令，agent 打开网页、读 DOM、点按钮、输文字、截图看页面——登录卡住时自动等你手动完成再接手。所见即所控。</p>
+
+<p align="center">
+  <img src="docs/assets/browser.png" alt="浏览器面板内渲染知乎首页" width="100%">
+</p>
 
 <br>
 
@@ -112,12 +120,12 @@ dsh-android 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 
 ### 出网与模型隧道
 
-设备无直连外网且本地网关 TLS 拦截。出网统一经宿主机（开发机执行）：
+设备无直连外网且本地网关 TLS 拦截。出网统一经宿主机（开发机执行），**这是浏览器面板外网页、agent 联网工具和 apt 装包的硬依赖**——隧道断了外网页面全部「网页无法打开」：
 
 ```sh
 adb reverse tcp:11433 tcp:11433   # vLLM 模型（kylin100.sh tunnel 已含）
 adb reverse tcp:8333  tcp:7890    # node 出网（HTTP(S)_PROXY 已注入）
-adb reverse tcp:7890  tcp:7890    # WebView 外网页
+adb reverse tcp:7890  tcp:7890    # WebView 外网页 ← 断了=网页打不开
 adb reverse tcp:8391  tcp:8391    # apt/pkg（配合 tools/termux-proxy.py）
 ```
 
@@ -173,6 +181,27 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 <br>
 
 面板内容区是壳内原生 WebView 引擎：cookie/localStorage 持久（登录一次全 tab 共享）、无 iframe 反嵌限制、agent 可直接操控你看到的页面（含截图视觉）。外链点击会开壳内全屏浏览器窗口（返回键回对话）。
+
+</details>
+
+<details>
+<summary><b>浏览器面板/网页打不开（「网页无法打开」）？</b></summary>
+<br>
+
+按顺序排查两件事：
+
+1. **出网隧道**。设备无直连外网，所有外部网页经宿主机 clash 代理隧道出网。若宿主机未执行 `adb reverse tcp:7890 tcp:7890`（或开发机已断开），所有外网页面都会显示「网页无法打开」。本机 UI（对话/设置）不受影响。
+2. **Cookie 溢出（历史版本坑，已修复）**。早期版本 auth cookie 名含端口（每次启动换端口→新 cookie），累积后请求头超限，服务端返回 431。当前版本已按 host 固定 cookie 名并自动清理旧 cookie；若使用旧版 APK 升级后仍复现，重新安装一次即可。
+
+另：个别站点（百度搜索结果页等）会把顶层导航劫走——按返回键会自动回到对话界面。
+
+</details>
+
+<details>
+<summary><b>agent-reach / apt 装包失败？</b></summary>
+<br>
+
+两者都依赖宿主机侧的配套通道：apt 需要 `adb reverse tcp:8391 tcp:8391` + 宿主机运行 `tools/termux-proxy.py`；agent-reach 的网页通道需要 8333/7890 隧道。已装好的工具（git/openssh/jq 等）不受影响，只有装新包时需要。
 
 </details>
 
