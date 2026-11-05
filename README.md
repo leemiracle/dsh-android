@@ -1,23 +1,80 @@
-# dsh-android — DeepSeek Harness APK 壳
+<p align="center">
+  <b>简体中文</b>
+</p>
 
-把 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`，DeepSeek 官方
-开源 agent harness，Node.js + Web UI）完整装进一个 Android APK：安装即用、离线自包含，
-无需 Termux、无需 root。在长城 pd2508（麒麟 PC 形态，arm64 / Android 16）上端到端验证通过。
+<h1 align="center">dsh-android</h1>
 
-上游仓库 `/usr-data/data2/repos/deepseek-ai/deepseek-harness`（master @ f3803c9697，
-0.2.2-alpha.2）**只作基准参考，零改动**；APK 内嵌的是 npm 发布包
-`@deepseek-ai/dsh@0.2.1-rc.2` + 一个 Android 专用 shim 覆盖（见下）。
+<p align="center">
+  DeepSeek Harness 的 Android 本体。免 Root、免 Termux，一个 APK 装进完整的 Agent 运行环境——对话、终端、浏览器三面一体。
+</p>
+
+<p align="center">
+  <a href="https://github.com/leemiracle/dsh-android/releases/latest"><img alt="Android 8+" src="https://img.shields.io/badge/Android-8%2B-4B67B4?style=flat-square&logo=android&logoColor=white&labelColor=2B3245"></a>
+  <a href="LICENSE"><img alt="许可证 MIT" src="https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-4B67B4?style=flat-square&labelColor=2B3245"></a>
+  <a href="https://github.com/leemiracle/dsh-android/releases/latest"><img alt="下载 APK" src="https://img.shields.io/badge/GitHub%20Releases-%E4%B8%8B%E8%BD%BD%20APK-4B67B4?style=flat-square&logo=github&logoColor=white&labelColor=2B3245"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/leemiracle/dsh-android/stargazers"><img alt="GitHub Star 数" src="https://img.shields.io/github/stars/leemiracle/dsh-android?style=flat-square&logo=github&label=Star&color=4B67B4&labelColor=2B3245"></a>
+  <a href="https://github.com/leemiracle/dsh-android/network/members"><img alt="Fork 数" src="https://img.shields.io/github/forks/leemiracle/dsh-android?style=flat-square&logo=github&label=Fork&color=4B67B4&labelColor=2B3245"></a>
+  <a href="https://github.com/leemiracle/dsh-android/commits"><img alt="最近提交" src="https://img.shields.io/github/last-commit/leemiracle/dsh-android?style=flat-square&logo=github&label=%E6%9C%80%E8%BF%91%E6%8F%90%E4%BA%A4&color=4B67B4&labelColor=2B3245"></a>
+</p>
+
+<br>
+
+<h3 align="center">安装即用，不装 Termux 不 Root</h3>
+
+<p align="center">Termux Node.js 24 运行时 + 完整 dsh 依赖树打进 APK（约 210MB）。首启自动解包，30-60 秒后进入完整 Web UI。</p>
+
+<br>
+
+<h3 align="center">对话 · 终端 · 浏览器，三面一体</h3>
+
+<p align="center">右侧面板就是 dsh 原生的多标签 dockkit——终端跑真 bash，浏览器用原生 WebView 引擎，agent 在对话里直接驱动你看到的同一个界面。</p>
+
+<br>
+
+<h3 align="center">Agent 操控浏览器（browser-use 语义）</h3>
+
+<p align="center">对话里下指令，agent 打开网页、读 DOM、点按钮、输文字、截图看页面——登录卡住时自动等你手动完成再接手。所见即所控。</p>
+
+<br>
+
+<h3 align="center">完整 Linux 用户态</h3>
+
+<p align="center">内置 Termux bootstrap rootfs（bash 5.3 / coreutils / apt / python），终端面板和 agent 工具都能用。apt install 任意软件包。</p>
+
+<br>
+
+<h3 align="center">技能商店与经验蒸馏</h3>
+
+<p align="center">skillnet 搜社区技能一键安装；任务做完说「沉淀成技能」，按 SkillX 三层格式（规划/功能/原子）固化经验复用。</p>
+
+<br>
+
+## 可以做什么
+
+dsh-android 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）的第三方 Android 封装，把原本运行在 Node.js 桌面/服务器端的 AI Agent 运行环境完整「搬」进手机：
+
+- **本机运行**：APK 内嵌 Termux Node.js 24.22.1 与完整 dsh npm 依赖树，安装即用，无需 Root 或另装 Termux。
+- **完整 Web UI**：dsh 官方控制台原生体验——模型对话、设置管理、会话持久化、右侧多标签面板。
+- **终端面板**：内嵌 PTY（NDK 编译 node-pty）+ mksh / Linux rootfs，真命令行交互，apt 装任意工具。
+- **浏览器面板**：WebView 原生引擎 + 代理隧道出网，多 Tab 切换、Cookie/LocalStorage 持久化、外链全屏窗口。
+- **Agent 工具面**：`web_open / web_dom / web_click / web_type / web_screenshot / web_manual`（浏览器操控+视觉+人工接管）、`term_open / term_send`（持久终端）、`bash`（mksh）/ `linux`（rootfs 完整用户态）。
+- **技能生态**：agent-reach 17 平台互联网通道、skillnet 技能商店、skill-distill 经验蒸馏。
+- **工具链替换**：Android 上跑不了的沙箱 bash 换成 mksh 直跑；web_search 后端换成 Bing/引擎通道。
+
+模型请求仍由你配置的提供方处理（默认预置局域网 vLLM `qwen3.5-35b`，也可在设置里填 DeepSeek 官方 key）。
 
 ## 架构
 
 ```
-┌────────────────────────── APK (144MB) ──────────────────────────┐
+┌────────────────────────── APK (210MB) ─────────────────────────┐
 │ lib/arm64-v8a/                                                   │
-│   libnode_exec.so   Termux nodejs-lts 24.22.1 (aarch64/bionic)   │
-│   lib*_*.so ×9      c-ares/openssl/icu/sqlite/z/libc++ （改名+    │
-│                      patchelf 重写 SONAME/NEEDED/RUNPATH）        │
-│ assets/dsh-runtime.zip  dsh node_modules 305MB 瘦身树             │
-│                         + require-builtin shim + CA bundle        │
+│   libnode_exec.so   Termux Node.js 24.22.1 (aarch64/bionic)     │
+│   lib*_*.so ×10     c-ares/openssl/icu/sqlite/z/libc++/pty/flock │
+│                      （改名 + patchelf 重写 SONAME/NEEDED/RUNPATH）│
+│ assets/dsh-runtime.zip  dsh node_modules 瘦身树 + shim + CA      │
 └──────────────────────────────────────────────────────────────────┘
             安装首启                           运行
  assets → filesDir/dsh/{web,rt}    DshService(foreground) exec
@@ -27,209 +84,131 @@
                                    → WebView 加载 http://127.0.0.1:PORT/?token=…
 ```
 
-代码全在 `app/src/main/java/com/dsh/shell/`（纯 framework API，零第三方依赖）：
-`MainActivity`（状态页+WebView）、`DshService`（前台服务：装包/起进程/读 URL/崩溃重启×3/
-扫 /proc 清孤儿）、`DshRuntime`（zip 首装 + 路径常量）。
+代码全在 `app/src/main/java/com/dsh/shell/`（纯 framework API，第三方依赖仅 androidx.webkit）。
 
-## 关键技术决策（都有实证）
+## 安装
 
-| 决策 | 原因 |
+安装要求为 Android 8.0（API 26）及以上，当前只发布 **arm64** 包（覆盖绝大多数 64 位 Android 设备）。
+
+1. 从 [GitHub Releases](https://github.com/leemiracle/dsh-android/releases/latest) 下载 APK 并安装。
+2. 首启约 30-60 秒（自动解压运行时），之后自动进入 Web UI。
+3. 模型配置：默认预置局域网 vLLM（`qwen3.5-35b`）；或在 Web UI 设置→模型里填任意 OpenAI 兼容提供方。
+
+当前构建面向已配好开发环境的测试机（模型/出网依赖局域网隧道），通用网络环境下的开箱体验在持续完善。
+
+## 底层适配（都有实证）
+
+| 适配 | 原因 |
 |---|---|
-| Termux node 24 而非 nodejs-mobile | nodejs-mobile 止步 Node 18.20.4；dsh 实测 18/20 均崩（`util.parseEnv`、静默死），22+ 才活 |
-| node 进 jniLibs + `useLegacyPackaging` | targetSdk≥29 只允许 exec nativeLibraryDir；filesDir W^X 禁 exec/mmap-exec |
-| 9 个 .so 改名 + patchelf | AGP 静默丢弃 SONAME≠文件名或无 SONAME 的 jniLib（libsqlite3 无 SONAME 也被丢）；`libz.so.1` 这类名字直接进不了包。改名后 SONAME/NEEDED/RUNPATH(`$ORIGIN`) 全链重写 |
-| `--expose-internals` + shim | cordis 启动链硬依赖 `node-addon-require-builtin` 的 glibc 预编译 .node；bionic 加载不了。shim 用 expose-internals 下的普通 require 顶替 internal 模块加载（cordis-plugin-loader 源码本身就带这条回退路径） |
-| NDK 编译 flock 绑定（layout 2 新增） | 会话持久化 lease 硬依赖 `@deepseek-ai/node-addon-system/flock`，Termux Node 上 `process.platform==='android'` 被 gate 直接拒（上游只发 linux/darwin prebuilds）。build-runtime.sh 用 NDK r29 把上游 `src/flock.c`（纯 Node-API v8）编成 `libflocknode.so` 进 jniLibs，并 patch loader 走 `process.dlopen(DSH_NATIVE_DIR/libflocknode.so)`——`.node` 放 assets 会被 W^X 拦，`require()` 又不认 `.so` 后缀 |
-| session 落盘 link→rename（layout 3 新增） | `dsh-session-persistence-jsonl` 两处发布点用 `link(2)` 做 create-no-clobber 原子提交，Android SELinux 对 `app_data_file` 禁 hardlink（EACCES）→ 会话目录只剩 session.lock、零 jsonl。patch 后 android 走 `rename()`（存在性前置检查+写 lease 保住 no-clobber 语义）。真机实证：`session.v4.jsonl.zstd` 完整落盘（zstd 压缩、含会话头/权限配置/消息流） |
-| boot 单飞闸（AtomicBoolean） | MainActivity onCreate+onStart 冷启时各发一次 startService，两个 `dsh-boot` 线程并发跑 ensureInstalled 的 delete-and-extract，FileTreeWalk 断言直接炸进程（只在 zip 版本变化需重装时触发——marker 命中时双线程都早退所以平时无恙）。onStart 保活（系统停服务后拉活）与单飞闸配合：用户主动停止不打架 |
-| 瘦身 868MB→305MB（zip 后 45MB） | 删 map/md/ts/test 目录、跨平台 prebuilds、libreoffice-wasm(146M)、inspector(26M)。**坑：`doc/` 不能删**——yaml 包的 `dist/doc/` 是运行时代码 |
+| Termux node 24 而非 nodejs-mobile | nodejs-mobile 止步 Node 18；dsh 实测 18/20 均崩，22+ 才活 |
+| node 进 jniLibs + `useLegacyPackaging` | targetSdk≥29 只允许 exec nativeLibraryDir；filesDir W^X 禁 exec |
+| 10 个 .so 改名 + patchelf 全链重写 | AGP 静默丢弃 SONAME≠文件名或无 SONAME 的 jniLib |
+| `--expose-internals` + shim | cordis 启动链硬依赖 glibc 预编译 .node；bionic 加载不了，shim 用 internal require 顶替 |
+| NDK r29 编译 flock / node-pty | 会话持久化 lease 与终端 PTY 的原生绑定，上游只发 linux prebuild |
+| session 落盘 link→rename | Android SELinux 对 app_data_file 禁 hardlink（EACCES），patch 改 rename 保住原子性 |
+| **targetSdk 28**（Termux 生存之道） | 恢复 app 数据目录可执行 → Termux bootstrap rootfs（bash/apt/python）直接装进 `files/dsh/linux` |
+| WebView 分流代理（ProxyController） | 本地 dsh UI 直连；外网页面经宿主 clash 隧道出网 |
+| auth cookie 名按 host 哈希 | 上游按 host:port 哈希，每 boot 换端口→cookie 累积→HTTP 431 网页打不开 |
 
-## 构建
+### 出网与模型隧道
+
+设备无直连外网且本地网关 TLS 拦截。出网统一经宿主机（开发机执行）：
 
 ```sh
-# 1) 重建运行时输入（termux deb + npm + prune + shim + patchelf，可复现）
-tools/build-runtime.sh
+adb reverse tcp:11433 tcp:11433   # vLLM 模型（kylin100.sh tunnel 已含）
+adb reverse tcp:8333  tcp:7890    # node 出网（HTTP(S)_PROXY 已注入）
+adb reverse tcp:7890  tcp:7890    # WebView 外网页
+adb reverse tcp:8391  tcp:8391    # apt/pkg（配合 tools/termux-proxy.py）
+```
 
-# 2) 出 APK（本机 gradle 8.11.1 + AGP 8.7.3 + JDK21 均已缓存）
+## 从源码构建
+
+以下流程面向 **Linux x86_64**（需 JDK 21、Android SDK/NDK r29、Gradle 8.11+、patchelf）：
+
+```bash
+git clone https://github.com/leemiracle/dsh-android.git
+cd dsh-android
+
+# 1) 重建运行时（termux deb + npm + prune + shim + patchelf + NDK 编译，幂等可复现）
+bash tools/build-runtime.sh /tmp/dsh-build
+
+# 2) 出 APK
 ./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-升级 dsh：改 `tools/build-runtime.sh` 里 `DSH_NPM_VERSION` 重跑即可（上游仓库不受影响）。
+升级 dsh 版本：改 `tools/build-runtime.sh` 里 `DSH_NPM_VERSION` 重跑即可（上游仓库零改动，全部适配在 overlay patch 里）。
 
-## 内置工具替换：kylin-tools bundle（layout 5 新增）
+## 目录
 
-dsh 基础工具有两个在 Android 上天然不可用，用 kylin-agent 同款语义替换
-（`tools/kylin-tools/`，作为 web profile 的第三个 bundle 自动注册）：
+| 路径 | 内容 |
+| --- | --- |
+| `app/src/main/java/com/dsh/shell/` | 壳层 Kotlin：MainActivity / DshService / DshRuntime / BrowserOverlay / LinuxSandbox / DshBrowserActivity |
+| `tools/build-runtime.sh` | 运行时构建主管（deb/npm/prune/shim/patchelf/NDK/技能挂载） |
+| `tools/kylin-tools/` | 工具替换 bundle（bash/linux/web_*/term_* 工具 + preset 重述 patch） |
+| `tools/skills/` | 自研 dsh 技能（skillnet 技能商店 / skill-distill 经验蒸馏） |
+| `tools/termux-proxy.py` | apt 隧道 HTTPS 终结代理（GPG 端到端校验保留） |
+| `app/src/main/jniLibs/arm64-v8a/` | NDK 编译产物（libflocknode.so / libptyexec.so）+ Termux 改名库 |
 
-| 原工具 | Android 上的死因 | 替换实现 |
-|---|---|---|
-| `bash`（dsh-tool-bash） | 强制 Landlock/bubblewrap 沙箱后端，Android 没有，拒绝裸跑 | kylin-agent `shell` 语义：`/system/bin/sh`(mksh) 直跑，60s 上限，输出截断；四个 agent preset 的 tool-bash 槽位整体重述指向本包 |
-| `web_search`（web-search-deepseek） | 硬绑 DeepSeek 搜索 API，无 key 必报错 | 插 `kylin-ddg` search provider 进 dsh-web 的 provider 注册表：**原工具名/UX 不变**，后端换 Bing（DDG 对部分代理出口 IP 反爬，作 fallback）；`DSH_WEB_SEARCH_PROVIDER=kylin-ddg` 选择 |
+## 常见问题
 
-设备直验（真机 node + 完整代理链）：`getprop ro.product.model` → `GreatWall Computer / 16`；
-`search("hefei weather")` → AccuWeather/weather.com 真结果。
+<details>
+<summary><b>和 DeepSeek 官方是什么关系？</b></summary>
+<br>
 
-### 出网隧道（web_search/web_fetch 需要）
+没有关系。dsh-android 是社区开发的非官方封装，基于开源的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 构建。手机上运行的是 dsh 本身；模型请求发给你配置的模型提供方。
 
-设备无直连外网且本地网关 TLS 拦截（node 不信任其 CA）。出网统一走宿主机 clash：
+</details>
 
-```sh
-adb reverse tcp:11433 tcp:11433   # vLLM（kylin100.sh tunnel 已含）
-adb reverse tcp:8333  tcp:7890    # node 出网（DshService 已注入 HTTP(S)_PROXY=127.0.0.1:8333 + NODE_USE_ENV_PROXY）
-adb reverse tcp:7890  tcp:7890    # 可选：设备系统代理全局通道（kylin100.sh proxy-on 同款）
-```
+<details>
+<summary><b>需要 Root 或 Termux 吗？</b></summary>
+<br>
 
-**WebView 分流代理**（androidx.webkit ProxyController）：设备系统代理
-`http_proxy=127.0.0.1:7890` 会把 WebView 连本地 UI 的请求也劫进代理（CONNECT 回环
-拨到宿主机端口 → UI 卡死）。壳内 WebView 策略：`127.0.0.1/localhost` 直连（本地
-dsh UI），其余（浏览器面板的外网页面）走 `http://127.0.0.1:7890` 反向隧道出网。
+都不需要。Node 运行时、dsh 依赖树和 Linux rootfs 全部打进 APK，安装即用。可选的 bootstrap rootfs（bash/apt）也在 app 数据目录内自动安装。
 
-## 右侧面板：终端 + 浏览器（layout 8-11 新增）
+</details>
 
-dsh 自带的多标签右侧栏（ui-dockkit），两项关键适配：
+<details>
+<summary><b>浏览器面板和系统浏览器有什么区别？</b></summary>
+<br>
 
-- **终端面板**：`dsh-experimental-terminal-bundle` + node-pty。pty 绑定 Termux 只发
-  linux prebuild，Android 上 dlopen 缺 libc++ `__ndk1` 符号 → build-runtime.sh 用
-  NDK r29 静态链 libc++ 重编 `libptyexec.so` 进 jniLibs，loader patch 走
-  `process.dlopen`；subprocess-local 的进程检查器把 android 当 linux（同 patch）；
-  `SHELL=/system/bin/sh`（mksh）由 DshService 注入；bundle patch 将 PTY 后端指向
-  `/system/bin/sh -i`。真机实证：mksh 提示符下 `ls`/`adb --help` 正常执行回显。
-- **浏览器面板**：`ui-sidebar-browser` 插件上游 gate 到 desktop profile
-  （`disabled: profileContext.name !== 'desktop'`），kylin-tools bundle patch 覆盖
-  `disabled: false` 启用。web 构建以普通 iframe 渲染页面——Android WebView 完全
-  可用，外网流量经上面的分流代理出网。真机实证：面板内依次打开
-  example.com / kdocs.cn / baidu.com 全部渲染（tab 标题/地址栏/前进后退跟随；
-  导航状态持久化，重开 tab 有「恢复页面」）。
+面板内容区是壳内原生 WebView 引擎：cookie/localStorage 持久（登录一次全 tab 共享）、无 iframe 反嵌限制、agent 可直接操控你看到的页面（含截图视觉）。外链点击会开壳内全屏浏览器窗口（返回键回对话）。
 
-已知怪癖：浏览器 tab 从空白首态直接输首个 URL 偶尔停在「正在打开…」（上游控制器
-时序），关掉 tab 重开（或先建 tab 再输入）即正常；frame-busting 站点（百度搜索
-结果页等）可能把顶层导航劫走——返回键会自动 reload 壳 UI 兜底。
+</details>
 
-### 壳内浏览器窗口 + 面板原生引擎（办公站正解）
+<details>
+<summary><b>切到后台会被杀吗？</b></summary>
+<br>
 
-浏览器面板的 UI（tab 条/地址栏/工具栏）100% 保留 dsh，**内容区换成原生 WebView**
-（`BrowserOverlay` 单例引擎精确覆盖面板内容 rect）：
+前台服务 + 通知栏常驻已覆盖大多数场景。部分 ROM 的后台清扫仍可能杀进程（已做 onTaskRemoved 自重启缓解）；建议在系统设置里给本 app 开后台运行白名单。
 
-- iframe 被注入脚本置空，URL 由原生引擎渲染——无反嵌/跨域 302 限制，
-  cookie/localStorage/缓存 app 级持久（登录一次全 tab 共享，重启仍在）
-- **单例引擎 + tab 记忆**（多实例 key 路由在分栏 tab id 上打架后收敛）：JS 侧
-  per-tab URL 表，切 tab 时回放该 tab 的页面；后退/前进/刷新/地址栏全部接管
-- 后退键优先网页后退（原先直接退后台）；全屏弹窗自动让路；输入法 adjustResize
-- 钉版坑：MutationObserver 回调里**无条件 setAttribute 会自触发无限微任务循环**
-  （整页饿死、侧栏 0 宽）；WebView 静止时**暂停 rAF**（rect 流要用 setTimeout）；
-  `evaluateJavascript` 注 Kotlin raw string 返回 null 要走 `eval(jsonEscape(...))`；
-  载体 WebView 的 URL 投递不触发 `shouldOverrideUrlLoading`（`onPageStarted`
-  才可靠）；GONE 的 WebView 视口 0×0
-- `DshBrowserActivity`：`window.open`/外链的全屏窗口（同 task 返回即回 dsh），
-  独立 CDP target（agent 自动化可达，跨域 iframe 永不可达）
+</details>
 
-真机实证：kdocs 面板内 621×740 对齐渲染；tab A(kdocs)↔tab B(baidu) 切换各自
-恢复；后退键网页后退不退 app；localStorage probe 跨窗口/重启存活。
+<details>
+<summary><b>开源吗？</b></summary>
+<br>
 
-### 已知的一次性步骤
+开源，代码就在这个仓库，以 [MIT](LICENSE) 发布。上游 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 与 [Termux](https://termux.dev) 保留各自许可证。
 
-- 全新 DSH_HOME 首启：Web UI 出现「选择工作区」屏——手点 `wps` 一次即进入（以及
-  「预览版说明」弹窗点「继续」）。均为 client 端一次性状态。
-- preset 重述 patch 由 `--dump-config` 输出生成（对 dsh 0.2.1-rc.2 的四个 preset）；
-  **升级 DSH_NPM_VERSION 时需重生成** `tools/kylin-tools/cordis.patch.yml`。
+</details>
 
-## 内置 Linux 用户态（targetSdk 28 + Termux rootfs）
+## 参与贡献
 
-主 APK 降到 **targetSdk 28**（Termux 的生存之道）：app 数据目录恢复可执行 →
-**Termux bootstrap rootfs 直接装进 `files/dsh/linux`**（bash 5.3/coreutils/grep/
-sed/awk/apt，398 个二进制），三处消费：
+问题反馈和改进建议请提交到 [Issues](https://github.com/leemiracle/dsh-android/issues)。
 
-- **终端面板**：PTY 自动指向 rootfs 的 bash（用户层 patch 动态写入——rootfs 在
-  则 bash、不在则回落 mksh；服务进程注入 `PATH`/`LD_LIBRARY_PATH` 供动态链接）
-- **`linux` 工具**（agent 会话）：kylin-tools 注册，经 127.0.0.1:33990 桥执行
-  rootfs 命令（60s 上限）——mksh `bash` 工具没有的程序/GNU 行为走这里
-- **bootstrap 安装**（一次性）：宿主 `python3 -m http.server 8390` + `adb reverse
-  tcp:8390 tcp:8390` → `POST /linux/bootstrap {"src":"http://127.0.0.1:8390/bootstrap-aarch64.zip"}`
-  （官方源 termux-packages releases；设备 /sdcard 读取在 28 下要运行时权限，走
-  隧道下载免权限；下载必须 `Proxy.NO_PROXY`——系统代理劫持 loopback 会 502）
+## 风险提示
 
-targetSdk 28 的取舍：FGS/WebView/ProxyController/CDP 全部行为不变（都早于 29）；
-废弃的是 scoped storage 等新约束（kiosk 工具 app 反而受益）。
+AI 并非万无一失：回答、代码和操作可能出错，也可能被网页或文件中的恶意指令误导。终端与 shell 工具会产生真实影响（文件修改、软件安装）；请核验重要结果，不要让 agent 无人值守处理不可逆任务。本软件按「现状」提供，详见 [LICENSE](LICENSE)。
 
-### 「网页无法打开」钉版（431 cookie 累积，2026-11-02）
+## 许可证与致谢
 
-WebView 卡 `ERR_HTTP_RESPONSE_CODE_FAILURE` 的根因：dsh 的 auth cookie 名 =
-`"dsh-auth-"+sha256(authority)`，**authority 含端口**——每 boot 换端口 = 每 boot 新
-cookie 名，旧的 300 字节 JWT 在 WebView jar 里躺 30 天，累积到 Cookie 头溢出 → 服务端
-**431**（curl 用新 jar 一切正常——只有带历史的 WebView 会炸）。修复：build-runtime
-step 4g（哈希只按 host，每 boot 同名覆盖）+ loadUi 前清 `dsh-auth-*` 旧 cookie +
-服务换端口时 WebView 自动重载。
+本项目采用 [MIT](LICENSE)。
 
-### apt/pkg 生态（装任意 Linux 工具）
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：本仓封装和运行的引擎。
+- [Termux](https://termux.dev)：Node.js 运行时与 bootstrap rootfs 的来源。
+- [agent-reach](https://github.com/Panniantong/agent-reach)：17 平台互联网通道技能。
+- [SkillNet](https://github.com/zjunlp/SkillNet) / [SkillX](https://github.com/zjunlp/SkillX)：技能商店与经验蒸馏方法。
 
-bootstrap 的 apt/dpkg 全链硬编码 Termux 前缀，`ensureRootfsFixups`（boot 幂等）整体
-迁移：APT_CONFIG Dir 全家重定向 + `--root` 解包 + `DPkg::Path` + `$PREFIX` 内 Termux
-路径符号链（deb 内是完整绝对路径，靠 `--keep-directory-symlink` 落位）+ shebang/脚本
-内路径全量改写 + keyring 重链 + sbin dummy。
+<br>
 
-**TLS 通路**：rootfs 的 gnutls CA 路径不可重定向 → `tools/termux-proxy.py` 在宿主端
-终结 HTTPS（经 clash 真验证），rootfs 的 sources.list 与 pkg mirrors 指向
-`http://127.0.0.1:8391`（`adb reverse tcp:8391`）；apt 的 GPG 签名仍端到端校验包。
-
-实证：`apt-get update` 绿、`apt/pkg install` openssh/git/jq 全通（OpenSSH 10.6p1、
-git 2.56.0 可用）。**开发机依赖**：pkg/apt 装新包需宿主代理在跑（已装工具不受影响）。
-
-### agent 操控侧边栏浏览器（browser-use 语义）
-
-会话里直接下指令，agent 用 web_* 工具驱动**面板里可见的同一个页面**（所见即所控）：
-
-- `web_open`（无 tab 自动开浏览器 tab，经面板地址栏导航保持标题/历史同步）/ `web_state` /
-  `web_dom`（CSS 选择器感知）/ `web_click` / `web_type`（React 兼容原生 setter）
-- **`web_manual`**：登录/验证码卡住时的 human-in-the-loop 门——agent 发话请你到面板完成
-  操作，**引擎侧单次调用内轮询**直到页面 URL 前进（agent 不烧轮次）
-- 执行面：BrowserOverlay 同步 evaluateJavascript（AgentWeb 线程模型）+ loopback 桥 `/web/*`
-
-桥级端到端实测：open baidu（面板 621×740 可见+tab 自动开）→ dom 找到输入框 → type
-"browser-use" → click → 返回 11 条搜索结果。
-
-**视觉能力（web_screenshot）**：引擎截图 → attachments 入库 → dsh 工具框架的 image
-block 直进模型上下文（qwen3.5-35b 多模态）。真机 E2E：agent open 知乎 → 截图 →
-准确答出「关注/推荐/热榜/专栏/圈子」+ 注意到顶栏「99+ 封私信」——视觉 ground
-truth 实证（2026-11-02）。
-
-**方向钉版**：computer-use 范围=本 app 的 webview/终端/shell 三面；无障碍禁用（安全
-隐私）；adb 通道可用（不申请额外权限）；不操控系统浏览器/其他 app。
-
-## 使用
-
-首启约 30-60 秒（解 zip）；状态页变标题后 WebView 自动进入。通知栏常驻「停止」
-按钮；活动内返回键 = 后台保活。API key 在 Web UI 设置→模型 里填 DeepSeek 官方
-key（UI 自己持久化），或让用户侧 push `files/dsh/home/.dsh-env`。
-
-
-
-## 内置模型：kylin 本地 vLLM（与 kylin-agent 同源）
-
-首启时自动预置 kylin-agent `LocalHarness` 同款模型（vLLM `qwen3.5-35b`）到
-`$DSH_HOME/profiles/web/cordis.patch.yml`，作为默认模型：
-
-- provider `kylin-vllm` → `http://127.0.0.1:11433/v1`（`openai-completions`，无鉴权，
-  `KYLIN_VLLM_API_KEY` 由 Service 注入哑值过凭据 seam）
-- 预置逻辑幂等合并：文件已存在（UI 已初始化过）则追加两个 entry，用户在 UI 里
-  改过的不动；一旦出现 `kylin-vllm` 字样或 `# dsh-android-preseed-off` 标记即永不再写
-
-设备上访问该 vLLM 需先建隧道（开发机执行，与 kylin-agent 完全同一命令）：
-
-```sh
-bash /usr-data/data2/kylin/kylin-agent/bin/kylin100.sh tunnel
-# = 本机 ka_fwd.py 转发 127.0.0.1:11433 → 10.44.11.11:11433 + adb reverse tcp:11433
-```
-
-不想要预置：在 `cordis.patch.yml` 顶部加一行 `# dsh-android-preseed-off`（或删掉那
-两个 entry）即可，重启后不会再被写回。
-
-## 已知边界
-
-- bash/终端类工具在 Android 上降级（有 /system/bin/sh，无 bash/git）——服务器与 UI 不受影响；`bash` 工具已由 kylin-tools bundle 替换为 mksh 直跑
-- Android 15+ 对 dataSync 前台服务有 6h 上限，超时系统会停服务（重启 app 即恢复；onStart 保活已覆盖进程内拉活）
-- **麒麟 ROM 装机后约 48s 可能一次性强停 FGS**（观察到 `Stop FGS timeout` + CompatChangeReporter 同刻触发；非装机场景 130s+/1.5h+ 稳定存活）。停后下次打开 app 由 onStart 拉活
-- 附件上传（layout 6 修复）：内容寻址去重的两处 `link(2)`（别名=copy 保源、staged=rename）同样被 SELinux 禁——已加 android 分支
-- `dsh-experimental-inspector`、libreoffice 文档预览（wasm 146MB）已裁，功能缺失但不影响主链
-- 只带 arm64-v8a；x86_64 需换 Termux x86_64 deb 同法打包
-- 版本: 壳 0.1.0 · dsh 0.2.1-rc.2 · node 24.22.1 · runtime layout 11（2026-10-30 真机验证：消息收发+会话落盘+工具替换+终端面板+浏览器面板+壳内浏览器窗口全绿；附件上传待用户实测）
+<p align="center"><sub>dsh-android 是社区开发的非官方项目，与 DeepSeek 没有关联，也不代表 DeepSeek。DeepSeek 名称与标识归其所有者所有。</sub></p>
